@@ -15,10 +15,17 @@ if [ ! -x "$VENV/bin/python" ]; then
     "$PYTHON" -m venv "$VENV"
 fi
 
+NEEDS_INSTALL=0
 if [ ! -f "$STAMP" ] || [ "$ROOT/pyproject.toml" -nt "$STAMP" ]; then
+    NEEDS_INSTALL=1
+elif ! "$VENV/bin/python" -c 'import cryptography, the_grid' >/dev/null 2>&1; then
+    NEEDS_INSTALL=1
+fi
+
+if [ "$NEEDS_INSTALL" -eq 1 ]; then
     PIP_CACHE_DIR=${PIP_CACHE_DIR:-"$VENV/.cache/pip"}
     export PIP_CACHE_DIR
-    if "$VENV/bin/python" -c 'import setuptools' >/dev/null 2>&1; then
+    if "$VENV/bin/python" -c 'import setuptools.build_meta' >/dev/null 2>&1; then
         "$VENV/bin/python" -m pip install --disable-pip-version-check --quiet --no-build-isolation -e "$ROOT"
     else
         "$VENV/bin/python" -m pip install --disable-pip-version-check --quiet -e "$ROOT"

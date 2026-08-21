@@ -9,7 +9,7 @@ import tempfile
 from collections.abc import Mapping
 from dataclasses import replace
 from pathlib import Path
-from typing import Any, Final, TextIO
+from typing import Any, Final
 
 from . import terms, ui_text
 from .models import ClientConfig, ServerSettings, UiSettings

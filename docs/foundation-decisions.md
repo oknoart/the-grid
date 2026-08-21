@@ -1,6 +1,6 @@
-# foundation decisions and open implementation details
+# implementation decisions
 
-## decisions made for Phase 1
+## Phase 1 foundation decisions
 
 - Python import package: `the_grid`.
 - Console executable: `grid`.
@@ -20,31 +20,44 @@
 These are reversible implementation names or direct interpretations of the
 approved specification; none changes a product or security boundary.
 
-## no Phase 1 blockers
+## Phase 2 frozen protocol decisions
 
-The approved specification and supplied word list are sufficient to implement
-and test the complete foundation phase.
+The byte-level details that were open after Phase 1 are now frozen in
+`docs/protocol-encodings-v1.md` and pinned by
+`tests/vectors/phase2-v1.json`.
 
-## details to freeze before Phase 2 cryptographic code
+- Cryptographic field containers use a two-byte field count and four-byte
+  big-endian length before every exact field, with the domain as field zero.
+- Protocol version `1` is encoded as unsigned 16-bit big-endian `0x0001` inside
+  cryptographic encodings.
+- HKDF shorthand means HKDF-SHA256, separate invocation per output, 32-byte
+  output, and `salt=None` unless another salt is explicitly stated.
+- Access challenges are 32 bytes and client nonces are 16 bytes.
+- The server ID file is exactly 32 raw bytes. Access verifier state is compact,
+  sorted UTF-8 JSON with canonical unpadded Base64url and contains only version,
+  access generation, and verifier key.
+- Board plaintext uses sorted compact JSON keys, direct UTF-8 output, and strict
+  duplicate/unknown-key rejection.
+- Session transcript order is always creator then joiner. Role codes are `01`
+  and `02`; direction nonce prefixes are `00000001` and `00000002`.
+- Verification codes use
+  `23456789ABCDEFGHJKLMNPQRSTUVWXYZ` and map the first 40 seed bits to eight
+  five-bit characters displayed as two groups of four.
+- Encrypted session payload types are neutral internal identity, text, and close
+  events rather than public command names.
+- Production handshake generation always creates a fresh X25519 private key;
+  deterministic private-key construction exists only as an internal test-vector
+  helper.
+- Creating an encrypted close event always discards the live channel material;
+  there is no continue-after-close option.
 
-The specification fixes algorithms, labels, sizes, and security behaviour, but
-several byte-level interoperability details still need an explicit protocol
-encoding document and fixed vectors before cryptographic code is written:
+Changing any item in this section requires a protocol revision and new fixed
+vectors rather than an informal code change.
 
-1. The canonical byte encoding and length-prefix rules for access proofs and
-   session handshake transcripts.
-2. The exact HKDF invocation for shorthand forms where the specification names
-   an info label but does not explicitly state salt and output length.
-3. The exact deterministic JSON settings for encrypted board plaintext.
-4. The exact verification-code alphabet and derivation-to-eight-character map.
-5. The direction-prefix constants and role ordering used in session nonces and
-   transcript construction.
+## no Phase 2 product blockers
 
-The proposed treatment is to define these as neutral protocol constants, use
-unambiguous length-prefixed binary fields, assign roles by the server, and
-publish fixed test vectors before implementing the primitives. This is a
-technical specification step, not a request to change approved product
-behaviour.
+The approved specification was sufficient to complete access, board, and
+private-session cryptography. No settled product decision was reopened.
 
 ## non-technical repository item
 

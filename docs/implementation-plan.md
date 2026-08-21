@@ -4,7 +4,7 @@ The approved specification defines five implementation phases. The practical
 build order below preserves those boundaries and places tests beside security-
 critical and protocol code.
 
-## phase 1 - foundation
+## phase 1 - foundation — complete
 
 1. Establish the package, launcher, console entry point, and test harness.
 2. Add strict client configuration models, platform paths, loading, saving, and
@@ -19,7 +19,7 @@ critical and protocol code.
 Completion gate: a clean checkout installs and generates valid four-word
 phrases from the exact approved bundled file.
 
-## phase 2 - access and cryptography
+## phase 2 - access and cryptography — complete
 
 Build in this order:
 
@@ -36,7 +36,7 @@ Build in this order:
 Completion gate: all access, board, and live-session cryptography passes fixed
 vectors and failure tests without networking.
 
-## phase 3 - headless server and clients
+## phase 3 - headless server and clients — next
 
 Build in this order:
 

@@ -14,13 +14,19 @@ class RepositoryTests(unittest.TestCase):
         project = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))[
             "project"
         ]
+        self.assertEqual(project["version"], "0.2.0")
         self.assertEqual(project["dependencies"], ["cryptography"])
         self.assertEqual(project["requires-python"], ">=3.11")
         self.assertEqual(project["scripts"], {"grid": "the_grid.cli:main"})
 
     @unittest.skipUnless(os.name == "posix", "POSIX launcher required")
     def test_launcher_is_executable(self) -> None:
-        self.assertTrue(os.access(ROOT / "run", os.X_OK))
+        launcher = ROOT / "run"
+        self.assertTrue(os.access(launcher, os.X_OK))
+        self.assertIn(
+            "import setuptools.build_meta",
+            launcher.read_text(encoding="utf-8"),
+        )
 
     def test_approved_package_structure_exists(self) -> None:
         modules = {
@@ -51,6 +57,29 @@ class RepositoryTests(unittest.TestCase):
         )
         self.assertIn("Status:** Approved v1 specification", text)
         self.assertIn("# 28. Implementation order", text)
+
+    def test_phase_two_protocol_documents_and_vectors_are_retained(self) -> None:
+        required = [
+            ROOT / "docs" / "protocol-encodings-v1.md",
+            ROOT / "docs" / "cryptographic-test-vectors-v1.md",
+            ROOT / "docs" / "phase-2-report.md",
+            ROOT / "tests" / "vectors" / "phase2-v1.json",
+        ]
+        for path in required:
+            with self.subTest(path=path):
+                self.assertTrue(path.is_file())
+        protocol = required[0].read_text(encoding="utf-8")
+        self.assertIn("Status:** frozen for implementation protocol v1", protocol)
+        self.assertIn("session-data-aad-v1", protocol)
+
+    def test_security_modules_do_not_import_user_interface_copy(self) -> None:
+        package = ROOT / "src" / "the_grid"
+        for name in ("access.py", "crypto.py", "hub.py", "protocol.py", "sessions.py"):
+            text = (package / name).read_text(encoding="utf-8")
+            with self.subTest(name=name):
+                self.assertNotIn("ui_text", text)
+                self.assertNotIn("from . import terms", text)
+
 
 
 if __name__ == "__main__":

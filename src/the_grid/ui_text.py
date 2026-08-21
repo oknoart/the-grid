@@ -22,11 +22,11 @@ CONNECTING: Final = "connecting..."
 CONNECTED: Final = "connected"
 WAITING: Final = "waiting..."
 CONFIGURATION_SAVED: Final = "configuration saved"
-PHASE_1_READY: Final = "phase 1 foundation is installed"
-PHASE_1_CLIENT_PENDING: Final = (
+PHASE_2_READY: Final = "phase 2 cryptography is installed"
+PHASE_2_CLIENT_PENDING: Final = (
     "networking and the interactive terminal client are not implemented yet"
 )
-PHASE_1_STATUS_PENDING: Final = "network status is not available in phase 1"
+PHASE_2_STATUS_PENDING: Final = "network status is not available before phase 3"
 
 SERVER_UNREACHABLE: Final = "the server could not be reached"
 TLS_VERIFICATION_FAILED: Final = "the server identity could not be verified"

@@ -66,10 +66,10 @@ def main(
     args = parser.parse_args(argv)
 
     if args.command is None:
-        return _show_foundation_status(output, errors)
+        return _show_implementation_status(output, errors)
 
     if args.command == "status":
-        print(ui_text.PHASE_1_STATUS_PENDING, file=errors)
+        print(ui_text.PHASE_2_STATUS_PENDING, file=errors)
         return 2
 
     path = default_config_path() if config_file is None else Path(config_file)
@@ -92,7 +92,7 @@ def main(
         return 1
 
 
-def _show_foundation_status(output: TextIO, errors: TextIO) -> int:
+def _show_implementation_status(output: TextIO, errors: TextIO) -> int:
     try:
         generated = generate_phrase()
     except (WordListError, PhraseError):
@@ -105,6 +105,6 @@ def _show_foundation_status(output: TextIO, errors: TextIO) -> int:
 
     print(ui_text.THE_GRID, file=output)
     print(file=output)
-    print(ui_text.PHASE_1_READY, file=output)
-    print(ui_text.PHASE_1_CLIENT_PENDING, file=output)
+    print(ui_text.PHASE_2_READY, file=output)
+    print(ui_text.PHASE_2_CLIENT_PENDING, file=output)
     return 0
