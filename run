@@ -1,0 +1,29 @@
+#!/bin/sh
+set -eu
+
+ROOT=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+PYTHON=${PYTHON:-python3}
+VENV="$ROOT/.venv"
+STAMP="$VENV/.the-grid-installed"
+
+if ! "$PYTHON" -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 11) else 1)'; then
+    echo "python 3.11 or later is required" >&2
+    exit 1
+fi
+
+if [ ! -x "$VENV/bin/python" ]; then
+    "$PYTHON" -m venv "$VENV"
+fi
+
+if [ ! -f "$STAMP" ] || [ "$ROOT/pyproject.toml" -nt "$STAMP" ]; then
+    PIP_CACHE_DIR=${PIP_CACHE_DIR:-"$VENV/.cache/pip"}
+    export PIP_CACHE_DIR
+    if "$VENV/bin/python" -c 'import setuptools' >/dev/null 2>&1; then
+        "$VENV/bin/python" -m pip install --disable-pip-version-check --quiet --no-build-isolation -e "$ROOT"
+    else
+        "$VENV/bin/python" -m pip install --disable-pip-version-check --quiet -e "$ROOT"
+    fi
+    touch "$STAMP"
+fi
+
+exec "$VENV/bin/python" -m the_grid "$@"

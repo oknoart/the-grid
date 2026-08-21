@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "the-grid-messenger"
+version = "0.1.0"
+description = "A lightweight private terminal messaging application."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "cryptography",
+]
+
+[project.scripts]
+grid = "the_grid.cli:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+include-package-data = true
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+the_grid = ["data/grid_words.txt"]
