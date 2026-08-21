@@ -23,6 +23,7 @@ from .access import (
 )
 from .crypto import RandomBytes, constant_time_equal, hkdf_sha256, random_bytes
 from .protocol import (
+    ACCESS_GENERATION_BYTES,
     BOARD_AAD_DOMAIN,
     BOARD_MESSAGE_ID_BYTES,
     BOARD_MESSAGE_INFO,
@@ -348,6 +349,7 @@ class BoardStore:
         self,
         database: Path | str,
         *,
+        access_generation: bytes | None = None,
         clock: Callable[[], float] = time.time,
     ) -> None:
         if not callable(clock):
@@ -362,6 +364,8 @@ class BoardStore:
             self._db.execute("PRAGMA journal_mode = WAL")
             self._db.execute("PRAGMA synchronous = FULL")
             self._create_schema()
+            if access_generation is not None:
+                self.bind_access_generation(access_generation)
         except sqlite3.Error as exc:
             raise BoardStoreError(BoardStoreErrorCode.DATABASE) from exc
 
@@ -408,8 +412,60 @@ class BoardStore:
 
             CREATE INDEX IF NOT EXISTS cooldown_expiry
             ON board_cooldowns(next_post_at);
+
+            CREATE TABLE IF NOT EXISTS board_meta (
+                key    TEXT PRIMARY KEY,
+                value  BLOB NOT NULL
+            );
             """
         )
+
+    def bind_access_generation(self, access_generation: bytes) -> bool:
+        """Bind storage to one access generation, clearing old-generation state."""
+
+        generation = require_bytes(
+            "access_generation",
+            access_generation,
+            ACCESS_GENERATION_BYTES,
+        )
+        with self._lock:
+            try:
+                self._db.execute("BEGIN IMMEDIATE")
+                row = self._db.execute(
+                    "SELECT value FROM board_meta WHERE key = 'access_generation'"
+                ).fetchone()
+                if row is None:
+                    # A pre-Phase-5/unbound database has no trustworthy generation
+                    # association. Preserve it only when it is empty; otherwise clear
+                    # opaque state rather than guess which access generation owns it.
+                    has_unbound_state = any(
+                        self._db.execute(f"SELECT 1 FROM {table} LIMIT 1").fetchone()
+                        is not None
+                        for table in (
+                            "board_messages",
+                            "board_cooldowns",
+                            "board_seen_ids",
+                        )
+                    )
+                    changed = has_unbound_state
+                else:
+                    changed = bytes(row[0]) != generation
+                if changed:
+                    self._db.execute("DELETE FROM board_messages")
+                    self._db.execute("DELETE FROM board_cooldowns")
+                    self._db.execute("DELETE FROM board_seen_ids")
+                self._db.execute(
+                    """
+                    INSERT INTO board_meta (key, value) VALUES ('access_generation', ?)
+                    ON CONFLICT(key) DO UPDATE SET value = excluded.value
+                    """,
+                    (generation,),
+                )
+                self._db.execute("COMMIT")
+            except sqlite3.Error as exc:
+                self._rollback_quietly()
+                raise BoardStoreError(BoardStoreErrorCode.DATABASE) from exc
+        return changed
 
     def list_current(self, *, now: int | None = None) -> tuple[tuple[StoredBoardRecord, ...], tuple[bytes, ...]]:
         """Cleanup expired state and return the canonical oldest-first list."""

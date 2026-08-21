@@ -1,0 +1,73 @@
+name: release macos
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - runner: macos-15
+            arch: arm64
+          - runner: macos-15-intel
+            arch: x86_64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.14'
+          cache: pip
+      - run: python -m pip install --upgrade pip
+      - run: python -m pip install -e '.[release]'
+      - run: ./scripts/build-macos-release.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: okno-macos-${{ matrix.arch }}
+          path: build/release/okno-macos-${{ matrix.arch }}.tar.gz
+          if-no-files-found: error
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      OKNO_GRID_HOST: ${{ secrets.OKNO_GRID_HOST }}
+      OKNO_GRID_PORT: ${{ secrets.OKNO_GRID_PORT }}
+      OKNO_GRID_CA_B64: ${{ secrets.OKNO_GRID_CA_B64 }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: okno-macos-*
+          merge-multiple: true
+          path: release
+      - name: Create deployment assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$OKNO_GRID_HOST"
+          test -n "$OKNO_GRID_CA_B64"
+          printf '%s\n' "$OKNO_GRID_HOST" > release/okno-grid-host.txt
+          printf '%s\n' "${OKNO_GRID_PORT:-7331}" > release/okno-grid-port.txt
+          printf '%s' "$OKNO_GRID_CA_B64" | base64 --decode > release/okno-grid-ca.pem
+          (cd release && sha256sum okno-macos-*.tar.gz okno-grid-host.txt okno-grid-port.txt okno-grid-ca.pem > SHA256SUMS.txt)
+      - name: Create GitHub release
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh release create "$GITHUB_REF_NAME" \
+            --title "okno $GITHUB_REF_NAME" \
+            --generate-notes \
+            release/okno-macos-arm64.tar.gz \
+            release/okno-macos-x86_64.tar.gz \
+            release/okno-grid-host.txt \
+            release/okno-grid-port.txt \
+            release/okno-grid-ca.pem \
+            release/SHA256SUMS.txt

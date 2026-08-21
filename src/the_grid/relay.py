@@ -288,7 +288,7 @@ class RelayServer:
         self.allow_plain = allow_plain
         self.limits = RelayLimits() if limits is None else limits
         self.clock = clock
-        self.board = BoardStore(database, clock=clock)
+        self.board = BoardStore(database, access_generation=context.access_generation, clock=clock)
         self._server: asyncio.AbstractServer | None = None
         self._connections: set[_RelayConnection] = set()
         self._reservations: dict[bytes, _DisplayReservation] = {}
@@ -297,6 +297,7 @@ class RelayServer:
         self._board_sequence = 0
         self._maintenance_task: asyncio.Task[None] | None = None
         self._closing = False
+        self._rotating = False
         self._access_limiter = _WindowRateLimiter(
             DEFAULT_ACCESS_FAILURE_LIMIT,
             DEFAULT_ACCESS_WINDOW,
@@ -367,13 +368,60 @@ class RelayServer:
         await self.close()
 
     async def _accept(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
-        if self._closing or len(self._connections) >= self.limits.max_connections:
+        if self._closing or self._rotating or len(self._connections) >= self.limits.max_connections:
             writer.close()
             await writer.wait_closed()
             return
         connection = _RelayConnection(self, reader, writer)
         self._connections.add(connection)
         await connection.run()
+
+    async def rotate_access(
+        self,
+        context: AccessContext,
+        verifier_state: AccessVerifierState,
+    ) -> None:
+        """Apply one persisted access rotation and disconnect old-generation clients."""
+
+        if not isinstance(context, AccessContext):
+            raise TypeError("context must be AccessContext")
+        if not isinstance(verifier_state, AccessVerifierState):
+            raise TypeError("verifier_state must be AccessVerifierState")
+        if context.server_id != self.context.server_id:
+            raise RelayError("access rotation cannot change server identity")
+        if context.access_generation != verifier_state.access_generation:
+            raise RelayError("access context and verifier generation differ")
+        if context.access_generation == self.context.access_generation:
+            raise RelayError("access rotation must use a fresh generation")
+
+        self._rotating = True
+        try:
+            connections = list(self._connections)
+            await asyncio.gather(
+                *(connection.close() for connection in connections),
+                return_exceptions=True,
+            )
+            self._connections.clear()
+            self._waiting_rooms.clear()
+            self._routes.clear()
+            self._reservations.clear()
+            self.board.bind_access_generation(context.access_generation)
+            self.context = context
+            self.verifier_state = verifier_state
+            self._board_sequence += 1
+            self._access_limiter = _WindowRateLimiter(
+                DEFAULT_ACCESS_FAILURE_LIMIT,
+                DEFAULT_ACCESS_WINDOW,
+                clock=self.clock,
+                increasing_delay=True,
+            )
+            self._join_limiter = _WindowRateLimiter(
+                DEFAULT_SESSION_JOIN_LIMIT,
+                DEFAULT_SESSION_JOIN_WINDOW,
+                clock=self.clock,
+            )
+        finally:
+            self._rotating = False
 
     async def _connection_closed(self, connection: _RelayConnection) -> None:
         self._connections.discard(connection)
@@ -458,6 +506,20 @@ class RelayServer:
         )
         self._waiting_rooms[room_id] = room
         connection.waiting_room_id = room_id
+        return True
+
+    async def cancel_waiting_room(self, connection: _RelayConnection) -> bool:
+        """Remove one unpaired waiting room owned by the connection."""
+
+        room_id = connection.waiting_room_id
+        if room_id is None:
+            return False
+        room = self._waiting_rooms.get(room_id)
+        if room is None or room.creator is not connection:
+            connection.waiting_room_id = None
+            return False
+        self._waiting_rooms.pop(room_id, None)
+        connection.waiting_room_id = None
         return True
 
     async def join_waiting_room(
@@ -844,6 +906,7 @@ class _RelayConnection:
                 "board_subscribe": self._handle_board_subscribe,
                 "board_post": self._handle_board_post,
                 "session_wait": self._handle_session_wait,
+                "session_cancel": self._handle_session_cancel,
                 "session_join": self._handle_session_join,
                 "session_handshake": self._handle_session_handshake,
                 "session_data": self._handle_session_data,
@@ -937,7 +1000,12 @@ class _RelayConnection:
             await self._send_response(request_id, "display_reserve", ok=False)
             return True
         self.display_token = token
-        await self._send_response(request_id, "display_reserve", ok=True)
+        await self._send_response(
+            request_id,
+            "display_reserve",
+            ok=True,
+            post_remaining=self.server.board.cooldown_remaining(token),
+        )
         return True
 
     async def _handle_board_list(self, frame: Mapping[str, object], request_id: str) -> bool:
@@ -1063,6 +1131,11 @@ class _RelayConnection:
         hello = _hello_from_frame(frame, expected_role=SessionRole.CREATOR)
         ok = await self.server.create_waiting_room(self, room_id, hello)
         await self._send_response(request_id, "session_wait", ok=ok)
+        return True
+
+    async def _handle_session_cancel(self, frame: Mapping[str, object], request_id: str) -> bool:
+        ok = await self.server.cancel_waiting_room(self)
+        await self._send_response(request_id, "session_cancel", ok=ok)
         return True
 
     async def _handle_session_join(self, frame: Mapping[str, object], request_id: str) -> bool:

@@ -27,6 +27,45 @@ def record(number: int, token_number: int | None = None) -> EncryptedBoardRecord
 
 
 class BoardStoreTests(unittest.TestCase):
+    def test_first_generation_binding_clears_ambiguous_legacy_state(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            database = Path(directory) / "board.sqlite3"
+            legacy = BoardStore(database)
+            try:
+                self.assertTrue(legacy.post(record(1), now=1_700_000_000).accepted)
+                self.assertEqual(legacy.counts(), (1, 1))
+            finally:
+                legacy.close()
+
+            bound = BoardStore(database)
+            try:
+                self.assertTrue(bound.bind_access_generation(b"A" * 16))
+                self.assertEqual(bound.counts(), (0, 0))
+                self.assertFalse(bound.bind_access_generation(b"A" * 16))
+            finally:
+                bound.close()
+
+    def test_access_generation_change_clears_messages_cooldowns_and_spent_ids(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            database = Path(directory) / "board.sqlite3"
+            first_generation = b"A" * 16
+            second_generation = b"B" * 16
+            store = BoardStore(database, access_generation=first_generation)
+            try:
+                record = EncryptedBoardRecord(
+                    message_id=b"M" * 16,
+                    display_token=b"T" * 16,
+                    ciphertext=b"ciphertext" + b"0" * 16,
+                )
+                self.assertTrue(store.post(record, now=1_700_000_000).accepted)
+                self.assertEqual(store.counts(), (1, 1))
+                self.assertTrue(store.bind_access_generation(second_generation))
+                self.assertEqual(store.counts(), (0, 0))
+                self.assertFalse(store.bind_access_generation(second_generation))
+                self.assertTrue(store.post(record, now=1_700_000_001).accepted)
+            finally:
+                store.close()
+
     def setUp(self) -> None:
         self.temp = tempfile.TemporaryDirectory()
         self.clock = FakeClock()

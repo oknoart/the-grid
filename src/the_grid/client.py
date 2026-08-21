@@ -6,6 +6,7 @@ import asyncio
 import ipaddress
 import secrets
 import ssl
+import time
 from collections import deque
 from collections.abc import Mapping
 from dataclasses import dataclass, field
@@ -149,7 +150,7 @@ class HeadlessClient:
         *,
         ssl_context: ssl.SSLContext | None = None,
         allow_plain: bool = False,
-        client_version: str = "0.3.0",
+        client_version: str = "0.4.0",
         request_timeout: float = DEFAULT_CLIENT_REQUEST_TIMEOUT,
     ) -> None:
         if not isinstance(host, str) or not host:
@@ -189,6 +190,8 @@ class HeadlessClient:
         self._board_sync_lock = asyncio.Lock()
         self._pending: dict[str, asyncio.Future[Mapping[str, object]]] = {}
         self._closed = True
+        self._connection_closed = asyncio.Event()
+        self._connection_closed.set()
         self._max_frame_bytes = MAX_OUTER_FRAME_BYTES
         self._heartbeat_interval = 30.0
         self._dead_timeout = 90.0
@@ -200,6 +203,7 @@ class HeadlessClient:
         self.access_keys: AccessKeys | None = None
         self.display_id: str | None = None
         self.display_token: bytes | None = None
+        self._post_available_at = 0.0
 
         self._board_sequence = 0
         self._board_records: dict[bytes, BoardViewRecord] = {}
@@ -240,6 +244,10 @@ class HeadlessClient:
         )
 
     @property
+    def post_remaining_seconds(self) -> int:
+        return max(0, int(self._post_available_at - time.monotonic() + 0.999))
+
+    @property
     def session_channel(self) -> LiveSessionChannel | None:
         return self._session_channel
 
@@ -261,6 +269,7 @@ class HeadlessClient:
         except (OSError, ssl.SSLError) as exc:
             raise ClientError(ClientErrorCode.CONNECTION) from exc
         self._closed = False
+        self._connection_closed.clear()
         self._reader_task = asyncio.create_task(self._reader_loop(), name="grid-client-reader")
         try:
             response = await self._request(
@@ -347,8 +356,12 @@ class HeadlessClient:
         )
         if not require_frame_bool(response, "ok"):
             raise ClientError(ClientErrorCode.DISPLAY_UNAVAILABLE)
+        remaining = require_frame_int(
+            response, "post_remaining", maximum=BOARD_COOLDOWN_SECONDS
+        )
         self.display_id = checked
         self.display_token = token
+        self._post_available_at = time.monotonic() + remaining
         await self.synchronise_board()
 
     async def connect_ready(self, phrase: str, display_id: str) -> None:
@@ -444,6 +457,7 @@ class HeadlessClient:
         reason = response.get("reason")
         if reason is not None and (not isinstance(reason, str) or not reason.isascii()):
             raise ClientError(ClientErrorCode.PROTOCOL)
+        self._post_available_at = time.monotonic() + remaining
         return BoardPostOutcome(ok, remaining, reason)
 
     async def start_session(self) -> str:
@@ -467,6 +481,21 @@ class HeadlessClient:
             self._discard_session_state()
             raise ClientError(ClientErrorCode.SESSION_UNAVAILABLE)
         return phrase
+
+    async def cancel_waiting_session(self) -> bool:
+        """Cancel this client's unpaired creator waiting room, if still waiting.
+
+        A false result means pairing won the race; callers should continue the
+        existing session handshake rather than reporting a successful cancel.
+        """
+
+        if self._session_role is not SessionRole.CREATOR or self._pair_id is not None:
+            raise ClientError(ClientErrorCode.INVALID_STATE)
+        response = await self._request("session_cancel")
+        cancelled = require_frame_bool(response, "ok")
+        if cancelled:
+            self._discard_session_state()
+        return cancelled
 
     async def join_session(self, phrase: str) -> None:
         self._require_ready_for_session()
@@ -496,12 +525,20 @@ class HeadlessClient:
             or self.display_id is None
         ):
             raise ClientError(ClientErrorCode.INVALID_STATE)
-        timeout = float(self.server_limits.get("session_handshake_timeout_seconds", 30))
+        handshake_timeout = float(
+            self.server_limits.get("session_handshake_timeout_seconds", 30)
+        )
+        pair_timeout = (
+            float(self.server_limits.get("session_wait_timeout_seconds", 900))
+            if self._session_role is SessionRole.CREATOR
+            else handshake_timeout
+        )
         try:
-            pair = await asyncio.wait_for(self._pair_queue.get(), timeout=timeout)
+            pair = await asyncio.wait_for(self._pair_queue.get(), timeout=pair_timeout)
         except asyncio.TimeoutError as exc:
             self._discard_session_state()
             raise ClientError(ClientErrorCode.TIMEOUT) from exc
+        timeout = handshake_timeout
         if pair.role is not self._session_role:
             self._discard_session_state()
             raise ClientError(ClientErrorCode.SESSION)
@@ -575,10 +612,15 @@ class HeadlessClient:
         finally:
             self._discard_session_state()
 
+    async def wait_closed(self) -> None:
+        await self._connection_closed.wait()
+
     async def close(self) -> None:
         if self._closed:
+            self._connection_closed.set()
             return
         self._closed = True
+        self._connection_closed.set()
         if self._heartbeat_task is not None:
             self._heartbeat_task.cancel()
             await _await_cancelled(self._heartbeat_task)
@@ -677,6 +719,7 @@ class HeadlessClient:
         finally:
             if not self._closed:
                 self._closed = True
+                self._connection_closed.set()
                 if self._session_channel is not None and not self._session_channel.discarded:
                     self._session_channel.discard()
                 await self.session_closed_events.put(SessionClosed("server_disconnect"))

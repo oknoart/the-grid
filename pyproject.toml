@@ -3,8 +3,8 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "the-grid-messenger"
-version = "0.3.0"
+name = "okno"
+version = "0.5.0"
 description = "A lightweight private terminal messaging application."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -12,8 +12,13 @@ dependencies = [
     "cryptography",
 ]
 
+[project.optional-dependencies]
+release = [
+    "pyinstaller>=6.22,<7",
+]
+
 [project.scripts]
-grid = "the_grid.cli:main"
+okno = "the_grid.cli:main"
 
 [tool.setuptools]
 package-dir = {"" = "src"}

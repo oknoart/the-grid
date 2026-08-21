@@ -4,7 +4,7 @@ set -eu
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 PYTHON=${PYTHON:-python3}
 VENV="$ROOT/.venv"
-STAMP="$VENV/.the-grid-installed"
+STAMP="$VENV/.okno-installed"
 
 if ! "$PYTHON" -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 11) else 1)'; then
     echo "python 3.11 or later is required" >&2

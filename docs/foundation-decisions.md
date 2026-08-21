@@ -3,8 +3,10 @@
 ## Phase 1 foundation decisions
 
 - Python import package: `the_grid`.
-- Console executable: `grid`.
-- Configuration directory name: `the-grid`.
+- Original Phase 1 console executable: `grid` (superseded for the user-facing
+  Phase 4 client by `okno`; internal import package remains unchanged).
+- Original Phase 1 configuration directory name: `the-grid` (superseded by
+  `okno` with the approved application rename).
 - Default server port: `7331`, following the approved examples.
 - Approved word-list checksum: SHA-256 of the exact supplied bytes,
   `99b2c78777db24127047b1535e13da44b7c89f24d387a1041ef09627c7ca0bc5`.
@@ -19,6 +21,16 @@
 
 These are reversible implementation names or direct interpretations of the
 approved specification; none changes a product or security boundary.
+
+
+## Phase 4 product-facing amendment
+
+The later approved terminal UX review is frozen in
+`docs/phase-4-visual-ux-spec.md`. It explicitly supersedes reversible
+user-facing Phase 1 names and selected UI examples without changing protocol or
+cryptographic domains. The application/client is `okno`; the environment
+remains `the grid`; normal users connect to one deployment-provisioned Grid
+server; generated ID suggestions and `/clear` are removed.
 
 ## Phase 2 frozen protocol decisions
 

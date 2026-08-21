@@ -15,3 +15,12 @@ access-state.json
 *.key
 *-key.pem
 .env
+
+# Local Grid deployment state (never commit)
+server.json
+grid-ca.pem
+server-cert.pem
+server.log
+server.pid
+admin.sock
+okno-server-backup*.tar.gz

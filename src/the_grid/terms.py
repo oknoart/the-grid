@@ -9,16 +9,15 @@ from __future__ import annotations
 from types import MappingProxyType
 from typing import Final
 
-APP_DISPLAY_NAME: Final = "the grid"
-APP_SLUG: Final = "the-grid"
-EXECUTABLE_NAME: Final = "grid"
+APP_DISPLAY_NAME: Final = "okno"
+APP_SLUG: Final = "okno"
+EXECUTABLE_NAME: Final = "okno"
 
 GRID: Final = "the grid"
 HUB: Final = "the hub"
 SERVER: Final = "server"
 DISPLAY_ID: Final = "id"
 COMM: Final = "comm"
-PRIVATE_COMM: Final = "private comm"
 ACCESS_PHRASE: Final = "access phrase"
 COMM_PHRASE: Final = "comm phrase"
 STATUS: Final = "status"
@@ -28,6 +27,7 @@ END_OF_LINE: Final = "end of line"
 
 PUBLIC_TERMS = MappingProxyType(
     {
+        "application": APP_DISPLAY_NAME,
         "environment": GRID,
         "board": HUB,
         "server": SERVER,

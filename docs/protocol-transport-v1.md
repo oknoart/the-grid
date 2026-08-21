@@ -103,8 +103,11 @@ response is deliberately generic.
 
 After access succeeds, the client sends only its 16-byte opaque display token.
 The raw three-character display ID is never sent to the relay. Active
-collisions are rejected. A disconnected reservation is retained as an
-in-memory lease for the configured lease interval, then expires.
+collisions are rejected. A successful response also returns `post_remaining`,
+the current number of seconds until that token may post again. This lets the
+terminal `/status` command report cooldown availability without adding a
+separate identity/status protocol action. A disconnected reservation is
+retained as an in-memory lease for the configured lease interval, then expires.
 
 ## board protocol
 
@@ -191,6 +194,12 @@ timeout.
 consumes the waiting room and receives a server-random 16-byte pair ID. Both
 parties receive a neutral `session_pair` event containing their role and the
 peer's public handshake material. A third user cannot join the active pair.
+
+`session_cancel` lets the authenticated creator remove its own still-unpaired
+waiting room. A successful response reports cancellation; an unsuccessful
+response means the room is no longer waiting (for example, pairing won the
+race). Cancellation carries no comm phrase or raw display ID and does not
+affect an already-paired route.
 
 Unavailable, expired, occupied, mistyped, or rate-limited joins are represented
 through the same unsuccessful join result at the client boundary.

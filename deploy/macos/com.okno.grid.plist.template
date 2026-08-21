@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.okno.grid</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>__OKNO_BINARY__</string>
+        <string>server</string>
+        <string>run</string>
+        <string>--config</string>
+        <string>__OKNO_SERVER_CONFIG__</string>
+    </array>
+    <key>UserName</key>
+    <string>__OKNO_USER__</string>
+    <key>WorkingDirectory</key>
+    <string>__OKNO_STATE_DIR__</string>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+    <key>ProcessType</key>
+    <string>Background</string>
+    <key>ThrottleInterval</key>
+    <integer>10</integer>
+    <key>StandardOutPath</key>
+    <string>/dev/null</string>
+    <key>StandardErrorPath</key>
+    <string>/dev/null</string>
+</dict>
+</plist>

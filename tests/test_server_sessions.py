@@ -23,6 +23,22 @@ class SessionRoutingTests(unittest.IsolatedAsyncioTestCase):
         )
         return setup, server, creator, joiner
 
+    async def test_waiting_room_can_be_cancelled_and_phrase_becomes_unavailable(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            setup, server, creator, joiner = await self._ready_pair(Path(temporary))
+            try:
+                phrase = await creator.start_session()
+                self.assertTrue(await creator.cancel_waiting_session())
+                self.assertEqual(server._waiting_rooms, {})
+                with self.assertRaises(ClientError):
+                    await joiner.join_session(phrase)
+                # Successful cancellation discards creator state and permits a fresh room.
+                fresh = await creator.start_session()
+                self.assertEqual(len(fresh.split()), 4)
+            finally:
+                await asyncio.gather(creator.close(), joiner.close(), return_exceptions=True)
+                await server.close()
+
     async def test_waiting_room_expires_and_client_can_start_again(self) -> None:
         limits = RelayLimits(
             heartbeat_interval=0.05,

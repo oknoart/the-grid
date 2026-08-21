@@ -53,31 +53,42 @@ Build in this order:
 Completion gate: headless clients authenticate, exchange encrypted live board
 updates, enforce capacity and cooldowns, and route encrypted sessions.
 
-## phase 4 - terminal client — next
+## phase 4 - okno terminal client — complete
 
 Build in this order:
 
 1. Define the platform-neutral terminal boundary and POSIX backend.
-2. Add first-launch configuration, TLS access flow, and display selection.
-3. Add canonical board rendering and safe repeated-prefix wrapping.
-4. Add asynchronous input preservation and live redraw.
-5. Add the approved board and private-session commands only.
-6. Add plain/no-colour modes, help/status copy, signal handling, and terminal
-   restoration.
-7. Test two-terminal flows on macOS and Linux, including narrow widths.
+2. Add fixed-server TLS access flow and explicit three-character display selection.
+3. Add canonical Hub rendering and safe repeated-prefix wrapping.
+4. Add asynchronous input preservation, responsive redraw, and terminal editing.
+5. Add the approved Hub/comm command sets and server-backed waiting cancellation.
+6. Add the approved okno visual/UX amendment, plain/no-colour modes, help/status
+   copy, signal handling, and terminal/cursor restoration.
+7. Test two-terminal flows on macOS and Linux, including narrow widths, then
+   perform the final real-terminal colour/visual review.
 
 Completion gate: the complete normal user flow works in two ordinary terminals
 and remains understandable in plain mode.
 
-## phase 5 - administration and deployment
+## phase 5 - administration and deployment — implementation complete; real deployment gate pending
 
 Build in this order:
 
-1. Add server init, run, status, and rotate-access command routing.
-2. Add durable access/server state and rotation disconnect coordination.
-3. Add metadata-only logging, rate limits, hardening, and recovery checks.
-4. Add TLS/custom-CA documentation and systemd/launchd examples.
-5. Add macOS and Linux CI and a clean-host deployment verification.
+1. Add server init, run, status, live/stopped rotate-access, TLS renewal, backup,
+   and public client-profile export command routing. — complete
+2. Bind durable Hub/cooldown/spent-ID state to the access generation and
+   coordinate live rotation/disconnect through an owner-only local admin socket.
+   — complete
+3. Add PID locking, metadata-only rotating logs, private-key permission checks,
+   TLS validation, and backup/recovery checks. — complete
+4. Add a private Grid CA, launchd service template/install workflow, and detailed
+   macOS owner deployment/recovery documentation. — complete
+5. Add macOS/Linux CI, Apple Silicon/Intel frozen-release build tooling, tag-driven
+   GitHub Release assets, and the one-line macOS installer. — complete in code
+6. Initialise and validate the permanent Mac Mini, public network path, launchd
+   reboot/restart behavior, real frozen artifact sizes, and clean friend-machine
+   installation. — pending real-machine Phase 5 acceptance
 
 Completion gate: an owner can initialise, host, rotate, back up, and maintain
-the personal server without source changes.
+the personal server without source changes, and a fresh supported Mac can
+install the published client without Python/Homebrew setup.

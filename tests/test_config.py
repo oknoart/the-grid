@@ -27,7 +27,7 @@ class ConfigTests(unittest.TestCase):
             environ={"XDG_CONFIG_HOME": "/tmp/example-config"},
             home=Path("/home/example"),
         )
-        self.assertEqual(path, Path("/tmp/example-config/the-grid/config.json"))
+        self.assertEqual(path, Path("/tmp/example-config/okno/config.json"))
 
     def test_linux_fallback_path(self) -> None:
         path = default_config_path(
@@ -35,7 +35,7 @@ class ConfigTests(unittest.TestCase):
             environ={},
             home=Path("/home/example"),
         )
-        self.assertEqual(path, Path("/home/example/.config/the-grid/config.json"))
+        self.assertEqual(path, Path("/home/example/.config/okno/config.json"))
 
     def test_macos_path(self) -> None:
         path = default_config_path(
@@ -45,7 +45,7 @@ class ConfigTests(unittest.TestCase):
         )
         self.assertEqual(
             path,
-            Path("/Users/example/Library/Application Support/the-grid/config.json"),
+            Path("/Users/example/Library/Application Support/okno/config.json"),
         )
 
     def test_unsupported_platform_is_explicit(self) -> None:
@@ -103,16 +103,18 @@ class ConfigTests(unittest.TestCase):
 
     def test_only_approved_values_can_be_set(self) -> None:
         config = ClientConfig()
-        config = set_config_value(config, "server.host", "grid.example.net")
-        config = set_config_value(config, "server.port", "8443")
-        config = set_config_value(config, "server.ca_file", "/tmp/ca.pem")
         config = set_config_value(config, "ui.color", "false")
         config = set_config_value(config, "ui.plain", "yes")
-        self.assertEqual(config.server.host, "grid.example.net")
-        self.assertEqual(config.server.port, 8443)
-        self.assertEqual(config.server.ca_file, Path("/tmp/ca.pem"))
+        self.assertIsNone(config.server.host)
+        self.assertEqual(config.server.port, 7331)
+        self.assertIsNone(config.server.ca_file)
         self.assertFalse(config.ui.color)
         self.assertTrue(config.ui.plain)
+
+    def test_installed_server_target_is_not_user_settable(self) -> None:
+        for key in ("server.host", "server.port", "server.ca_file"):
+            with self.subTest(key=key), self.assertRaises(ConfigError):
+                set_config_value(ClientConfig(), key, "value")
 
     def test_secret_or_identity_keys_are_not_supported(self) -> None:
         for key in ("access_phrase", "comm_phrase", "id", "history", "key"):

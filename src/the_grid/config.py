@@ -16,9 +16,6 @@ from .models import ClientConfig, ServerSettings, UiSettings
 
 CONFIG_FILENAME: Final = "config.json"
 SUPPORTED_CONFIG_KEYS: Final = (
-    "server.host",
-    "server.port",
-    "server.ca_file",
     "ui.color",
     "ui.plain",
 )
@@ -179,29 +176,6 @@ def set_config_value(config: ClientConfig, key: str, raw_value: str) -> ClientCo
 
     if key not in SUPPORTED_CONFIG_KEYS:
         raise ConfigError("that configuration key is not supported")
-
-    if key == "server.host":
-        value = raw_value.strip()
-        if not value:
-            raise ConfigError("server.host must not be empty")
-        return replace(config, server=replace(config.server, host=value))
-
-    if key == "server.port":
-        try:
-            value = int(raw_value, 10)
-        except ValueError as exc:
-            raise ConfigError("server.port must be an integer") from exc
-        try:
-            return replace(config, server=replace(config.server, port=value))
-        except (TypeError, ValueError) as exc:
-            raise ConfigError("server.port must be between 1 and 65535") from exc
-
-    if key == "server.ca_file":
-        cleaned = raw_value.strip()
-        value = None if cleaned.lower() in {"none", "null"} else Path(cleaned)
-        if value is not None and not cleaned:
-            raise ConfigError("server.ca_file must not be empty")
-        return replace(config, server=replace(config.server, ca_file=value))
 
     bool_value = _parse_bool(raw_value)
     if key == "ui.color":
