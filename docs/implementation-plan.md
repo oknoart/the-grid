@@ -36,7 +36,7 @@ Build in this order:
 Completion gate: all access, board, and live-session cryptography passes fixed
 vectors and failure tests without networking.
 
-## phase 3 - headless server and clients — next
+## phase 3 - headless server and clients — complete
 
 Build in this order:
 
@@ -53,7 +53,7 @@ Build in this order:
 Completion gate: headless clients authenticate, exchange encrypted live board
 updates, enforce capacity and cooldowns, and route encrypted sessions.
 
-## phase 4 - terminal client
+## phase 4 - terminal client — next
 
 Build in this order:
 

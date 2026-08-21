@@ -4,9 +4,13 @@ from __future__ import annotations
 
 import json
 import secrets
+import sqlite3
+import threading
+import time
 from dataclasses import dataclass, field
 from enum import StrEnum
-from typing import Final
+from pathlib import Path
+from typing import Callable, Final
 
 from cryptography.exceptions import InvalidTag
 from cryptography.hazmat.primitives.ciphers.aead import ChaCha20Poly1305
@@ -287,3 +291,323 @@ def _strict_object(pairs: list[tuple[str, object]]) -> dict[str, object]:
 
 def _reject_json_constant(value: str) -> object:
     raise BoardCryptoError(BoardCryptoErrorCode.INVALID_MESSAGE, value)
+
+
+BOARD_CAPACITY: Final = 24
+BOARD_LIFETIME_SECONDS: Final = 86_400
+BOARD_COOLDOWN_SECONDS: Final = 86_400
+MAX_BOARD_CIPHERTEXT_BYTES: Final = 8 * 1024
+
+
+class BoardStoreErrorCode(StrEnum):
+    INVALID_RECORD = "invalid_record"
+    DUPLICATE_MESSAGE = "duplicate_message"
+    DATABASE = "database_error"
+
+
+class BoardStoreError(RuntimeError):
+    """Raised when persistent board state cannot be safely updated."""
+
+    def __init__(self, code: BoardStoreErrorCode, message: str | None = None) -> None:
+        self.code = code
+        super().__init__(code.value if message is None else message)
+
+
+@dataclass(frozen=True, slots=True)
+class StoredBoardRecord:
+    """One encrypted board record plus server-owned timestamps."""
+
+    record: EncryptedBoardRecord
+    created_at: int
+    expires_at: int
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.record, EncryptedBoardRecord):
+            raise TypeError("record must be EncryptedBoardRecord")
+        for name in ("created_at", "expires_at"):
+            value = getattr(self, name)
+            if type(value) is not int or value < 0:
+                raise ValueError(f"{name} must be a non-negative integer")
+        if self.expires_at != self.created_at + BOARD_LIFETIME_SECONDS:
+            raise ValueError("board timestamps do not match the v1 lifetime")
+
+
+@dataclass(frozen=True, slots=True)
+class BoardPostResult:
+    """Result of the atomic cooldown/capacity posting transaction."""
+
+    accepted: bool
+    stored: StoredBoardRecord | None
+    removed_message_ids: tuple[bytes, ...]
+    next_post_at: int | None = None
+
+class BoardStore:
+    """SQLite-backed encrypted board and independent posting cooldowns."""
+
+    def __init__(
+        self,
+        database: Path | str,
+        *,
+        clock: Callable[[], float] = time.time,
+    ) -> None:
+        if not callable(clock):
+            raise TypeError("clock must be callable")
+        self.path = Path(database)
+        self._clock = clock
+        self._lock = threading.RLock()
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            self._db = sqlite3.connect(self.path, isolation_level=None)
+            self._db.execute("PRAGMA foreign_keys = ON")
+            self._db.execute("PRAGMA journal_mode = WAL")
+            self._db.execute("PRAGMA synchronous = FULL")
+            self._create_schema()
+        except sqlite3.Error as exc:
+            raise BoardStoreError(BoardStoreErrorCode.DATABASE) from exc
+
+    def close(self) -> None:
+        with self._lock:
+            try:
+                self._db.close()
+            except sqlite3.ProgrammingError:
+                pass
+
+    def __del__(self) -> None:
+        try:
+            self.close()
+        except Exception:
+            pass
+
+    def _create_schema(self) -> None:
+        self._db.executescript(
+            """
+            CREATE TABLE IF NOT EXISTS board_messages (
+                message_id   BLOB PRIMARY KEY,
+                id_token     BLOB NOT NULL,
+                created_at   INTEGER NOT NULL,
+                expires_at   INTEGER NOT NULL,
+                ciphertext   BLOB NOT NULL
+            );
+
+            CREATE INDEX IF NOT EXISTS board_created
+            ON board_messages(created_at, message_id);
+
+            CREATE INDEX IF NOT EXISTS board_expiry
+            ON board_messages(expires_at);
+
+            CREATE TABLE IF NOT EXISTS board_seen_ids (
+                message_id     BLOB PRIMARY KEY,
+                first_seen_at  INTEGER NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS board_cooldowns (
+                id_token      BLOB PRIMARY KEY,
+                last_post_at  INTEGER NOT NULL,
+                next_post_at  INTEGER NOT NULL
+            );
+
+            CREATE INDEX IF NOT EXISTS cooldown_expiry
+            ON board_cooldowns(next_post_at);
+            """
+        )
+
+    def list_current(self, *, now: int | None = None) -> tuple[tuple[StoredBoardRecord, ...], tuple[bytes, ...]]:
+        """Cleanup expired state and return the canonical oldest-first list."""
+
+        timestamp = self._now(now)
+        with self._lock:
+            try:
+                self._db.execute("BEGIN IMMEDIATE")
+                removed = self._cleanup_locked(timestamp)
+                rows = self._db.execute(
+                    """
+                    SELECT message_id, id_token, created_at, expires_at, ciphertext
+                    FROM board_messages
+                    ORDER BY created_at ASC, message_id ASC
+                    """
+                ).fetchall()
+                self._db.execute("COMMIT")
+            except sqlite3.Error as exc:
+                self._rollback_quietly()
+                raise BoardStoreError(BoardStoreErrorCode.DATABASE) from exc
+        return tuple(self._stored_from_row(row) for row in rows), tuple(removed)
+
+    def cleanup(self, *, now: int | None = None) -> tuple[bytes, ...]:
+        timestamp = self._now(now)
+        with self._lock:
+            try:
+                self._db.execute("BEGIN IMMEDIATE")
+                removed = self._cleanup_locked(timestamp)
+                self._db.execute("COMMIT")
+            except sqlite3.Error as exc:
+                self._rollback_quietly()
+                raise BoardStoreError(BoardStoreErrorCode.DATABASE) from exc
+        return tuple(removed)
+
+    def post(
+        self,
+        record: EncryptedBoardRecord,
+        *,
+        now: int | None = None,
+    ) -> BoardPostResult:
+        """Apply expiry, duplicate, cooldown, insert, and capacity in one transaction."""
+
+        if not isinstance(record, EncryptedBoardRecord):
+            raise TypeError("record must be EncryptedBoardRecord")
+        if len(record.ciphertext) > MAX_BOARD_CIPHERTEXT_BYTES:
+            raise BoardStoreError(BoardStoreErrorCode.INVALID_RECORD)
+        timestamp = self._now(now)
+        expires_at = timestamp + BOARD_LIFETIME_SECONDS
+        next_post_at = timestamp + BOARD_COOLDOWN_SECONDS
+
+        with self._lock:
+            try:
+                self._db.execute("BEGIN IMMEDIATE")
+                removed = self._cleanup_locked(timestamp)
+                duplicate = self._db.execute(
+                    "SELECT 1 FROM board_seen_ids WHERE message_id = ?",
+                    (record.message_id,),
+                ).fetchone()
+                if duplicate is not None:
+                    self._db.execute("COMMIT")
+                    raise BoardStoreError(BoardStoreErrorCode.DUPLICATE_MESSAGE)
+
+                cooldown = self._db.execute(
+                    "SELECT next_post_at FROM board_cooldowns WHERE id_token = ?",
+                    (record.display_token,),
+                ).fetchone()
+                if cooldown is not None and int(cooldown[0]) > timestamp:
+                    self._db.execute("COMMIT")
+                    return BoardPostResult(
+                        accepted=False,
+                        stored=None,
+                        removed_message_ids=tuple(removed),
+                        next_post_at=int(cooldown[0]),
+                    )
+
+                self._db.execute(
+                    "INSERT INTO board_seen_ids (message_id, first_seen_at) VALUES (?, ?)",
+                    (record.message_id, timestamp),
+                )
+                self._db.execute(
+                    """
+                    INSERT INTO board_messages
+                    (message_id, id_token, created_at, expires_at, ciphertext)
+                    VALUES (?, ?, ?, ?, ?)
+                    """,
+                    (
+                        record.message_id,
+                        record.display_token,
+                        timestamp,
+                        expires_at,
+                        record.ciphertext,
+                    ),
+                )
+                self._db.execute(
+                    """
+                    INSERT INTO board_cooldowns (id_token, last_post_at, next_post_at)
+                    VALUES (?, ?, ?)
+                    ON CONFLICT(id_token) DO UPDATE SET
+                        last_post_at = excluded.last_post_at,
+                        next_post_at = excluded.next_post_at
+                    """,
+                    (record.display_token, timestamp, next_post_at),
+                )
+
+                count = int(
+                    self._db.execute("SELECT COUNT(*) FROM board_messages").fetchone()[0]
+                )
+                if count > BOARD_CAPACITY:
+                    oldest = self._db.execute(
+                        """
+                        SELECT message_id FROM board_messages
+                        ORDER BY created_at ASC, message_id ASC
+                        LIMIT 1
+                        """
+                    ).fetchone()
+                    if oldest is None:
+                        raise sqlite3.DatabaseError("capacity query returned no row")
+                    evicted = bytes(oldest[0])
+                    self._db.execute(
+                        "DELETE FROM board_messages WHERE message_id = ?",
+                        (evicted,),
+                    )
+                    removed.append(evicted)
+
+                self._db.execute("COMMIT")
+            except BoardStoreError:
+                self._rollback_quietly()
+                raise
+            except sqlite3.IntegrityError as exc:
+                self._rollback_quietly()
+                raise BoardStoreError(BoardStoreErrorCode.DUPLICATE_MESSAGE) from exc
+            except sqlite3.Error as exc:
+                self._rollback_quietly()
+                raise BoardStoreError(BoardStoreErrorCode.DATABASE) from exc
+
+        return BoardPostResult(
+            accepted=True,
+            stored=StoredBoardRecord(record, timestamp, expires_at),
+            removed_message_ids=tuple(removed),
+            next_post_at=next_post_at,
+        )
+
+    def cooldown_remaining(self, display_token: bytes, *, now: int | None = None) -> int:
+        checked = require_bytes("display_token", display_token, DISPLAY_TOKEN_BYTES)
+        timestamp = self._now(now)
+        with self._lock:
+            try:
+                row = self._db.execute(
+                    "SELECT next_post_at FROM board_cooldowns WHERE id_token = ?",
+                    (checked,),
+                ).fetchone()
+            except sqlite3.Error as exc:
+                raise BoardStoreError(BoardStoreErrorCode.DATABASE) from exc
+        if row is None:
+            return 0
+        return max(0, int(row[0]) - timestamp)
+
+    def counts(self) -> tuple[int, int]:
+        with self._lock:
+            messages = int(self._db.execute("SELECT COUNT(*) FROM board_messages").fetchone()[0])
+            cooldowns = int(self._db.execute("SELECT COUNT(*) FROM board_cooldowns").fetchone()[0])
+        return messages, cooldowns
+
+    def _cleanup_locked(self, timestamp: int) -> list[bytes]:
+        rows = self._db.execute(
+            "SELECT message_id FROM board_messages WHERE expires_at <= ?",
+            (timestamp,),
+        ).fetchall()
+        removed = [bytes(row[0]) for row in rows]
+        self._db.execute(
+            "DELETE FROM board_messages WHERE expires_at <= ?",
+            (timestamp,),
+        )
+        self._db.execute(
+            "DELETE FROM board_cooldowns WHERE next_post_at <= ?",
+            (timestamp,),
+        )
+        return removed
+
+    def _stored_from_row(self, row: tuple[object, ...]) -> StoredBoardRecord:
+        try:
+            record = EncryptedBoardRecord(
+                message_id=bytes(row[0]),
+                display_token=bytes(row[1]),
+                ciphertext=bytes(row[4]),
+            )
+            return StoredBoardRecord(record, int(row[2]), int(row[3]))
+        except (TypeError, ValueError, IndexError) as exc:
+            raise BoardStoreError(BoardStoreErrorCode.DATABASE) from exc
+
+    def _now(self, explicit: int | None) -> int:
+        value = int(self._clock()) if explicit is None else explicit
+        if type(value) is not int or value < 0:
+            raise ValueError("time must be a non-negative integer")
+        return value
+
+    def _rollback_quietly(self) -> None:
+        try:
+            self._db.execute("ROLLBACK")
+        except sqlite3.Error:
+            pass

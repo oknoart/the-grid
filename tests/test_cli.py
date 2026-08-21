@@ -24,7 +24,7 @@ class CliTests(unittest.TestCase):
             with self.subTest(token=token):
                 self.assertNotIn(token, help_text)
 
-    def test_no_argument_entry_point_reports_phase_two(self) -> None:
+    def test_no_argument_entry_point_reports_phase_three(self) -> None:
         output = StringIO()
         errors = StringIO()
         result = main([], stdout=output, stderr=errors)
@@ -32,15 +32,15 @@ class CliTests(unittest.TestCase):
         self.assertEqual(errors.getvalue(), "")
         self.assertEqual(
             output.getvalue(),
-            "the grid\n\nphase 2 cryptography is installed\n"
-            "networking and the interactive terminal client are not implemented yet\n",
+            "the grid\n\nphase 3 headless networking is installed\n"
+            "the interactive terminal client is not implemented yet\n",
         )
 
     def test_status_is_explicitly_pending(self) -> None:
         errors = StringIO()
         result = main(["status"], stdout=StringIO(), stderr=errors)
         self.assertEqual(result, 2)
-        self.assertEqual(errors.getvalue(), "network status is not available before phase 3\n")
+        self.assertEqual(errors.getvalue(), "interactive client status is not available before phase 4\n")
 
     def test_config_show_uses_defaults_without_creating_file(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

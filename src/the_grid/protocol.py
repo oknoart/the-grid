@@ -1,14 +1,18 @@
-"""Versioned neutral encodings shared by the cryptographic protocol.
+"""Versioned neutral encodings for cryptography and outer transport.
 
-Phase 2 freezes only the binary encodings needed by access, board, and live
-session cryptography. The newline-delimited JSON transport codec is introduced
-in Phase 3.
+Phase 2 froze the binary encodings used by access, board, and live-session
+cryptography. Phase 3 adds a bounded newline-delimited UTF-8 JSON envelope for
+network transport while preserving neutral machine-facing names.
 """
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import binascii
+import json
+from collections.abc import Mapping
+from enum import StrEnum
 from typing import Final
 
 PROTOCOL_VERSION: Final = 1
@@ -196,3 +200,242 @@ def b64url_decode(value: str, *, expected_length: int | None = None) -> bytes:
         if len(decoded) != expected_length:
             raise EncodingError("decoded value has the wrong length")
     return decoded
+
+
+# Outer transport constants frozen by Phase 3.
+MAX_OUTER_FRAME_BYTES: Final = 16 * 1024
+MAX_FRAME_TYPE_CHARS: Final = 64
+MAX_REQUEST_ID_CHARS: Final = 64
+MAX_VERSION_TEXT_CHARS: Final = 64
+MAX_CAPABILITIES: Final = 32
+MAX_CAPABILITY_CHARS: Final = 64
+
+
+class FrameErrorCode(StrEnum):
+    INVALID = "invalid_frame"
+    TOO_LARGE = "frame_too_large"
+    EOF = "end_of_stream"
+
+
+class FrameError(ValueError):
+    """Raised when one outer transport frame is malformed or oversized."""
+
+    def __init__(self, code: FrameErrorCode, message: str | None = None) -> None:
+        self.code = code
+        super().__init__(code.value if message is None else message)
+
+
+def encode_outer_frame(
+    frame: Mapping[str, object],
+    *,
+    max_bytes: int = MAX_OUTER_FRAME_BYTES,
+) -> bytes:
+    """Encode one canonical compact JSON object terminated by exactly one LF."""
+
+    checked_limit = _validate_frame_limit(max_bytes)
+    if not isinstance(frame, Mapping):
+        raise TypeError("frame must be a mapping")
+    value = dict(frame)
+    _validate_outer_basics(value)
+    try:
+        encoded = json.dumps(
+            value,
+            ensure_ascii=False,
+            allow_nan=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8") + b"\n"
+    except (TypeError, ValueError, UnicodeError) as exc:
+        raise FrameError(FrameErrorCode.INVALID) from exc
+    if len(encoded) > checked_limit:
+        raise FrameError(FrameErrorCode.TOO_LARGE)
+    return encoded
+
+
+def decode_outer_frame(
+    encoded: bytes,
+    *,
+    max_bytes: int = MAX_OUTER_FRAME_BYTES,
+) -> dict[str, object]:
+    """Strictly decode one complete LF-terminated outer JSON frame."""
+
+    checked_limit = _validate_frame_limit(max_bytes)
+    data = require_bytes("encoded", encoded)
+    if not data or len(data) > checked_limit:
+        raise FrameError(
+            FrameErrorCode.TOO_LARGE if len(data) > checked_limit else FrameErrorCode.INVALID
+        )
+    if not data.endswith(b"\n") or data.endswith(b"\n\n"):
+        raise FrameError(FrameErrorCode.INVALID)
+    payload = data[:-1]
+    if not payload or b"\r" in payload or b"\n" in payload or b"\x00" in payload:
+        raise FrameError(FrameErrorCode.INVALID)
+    try:
+        text = payload.decode("utf-8", errors="strict")
+        parsed = json.loads(
+            text,
+            object_pairs_hook=_strict_frame_object,
+            parse_constant=_reject_json_constant,
+        )
+    except (UnicodeError, json.JSONDecodeError, FrameError, RecursionError) as exc:
+        if isinstance(exc, FrameError):
+            raise
+        raise FrameError(FrameErrorCode.INVALID) from exc
+    if not isinstance(parsed, dict):
+        raise FrameError(FrameErrorCode.INVALID)
+    _validate_outer_basics(parsed)
+    return parsed
+
+
+async def read_outer_frame(
+    reader: asyncio.StreamReader,
+    *,
+    max_bytes: int = MAX_OUTER_FRAME_BYTES,
+) -> dict[str, object]:
+    """Read one bounded line from a stream without accepting an oversized frame."""
+
+    if not isinstance(reader, asyncio.StreamReader):
+        raise TypeError("reader must be an asyncio StreamReader")
+    checked_limit = _validate_frame_limit(max_bytes)
+    try:
+        data = await reader.readuntil(b"\n")
+    except asyncio.IncompleteReadError as exc:
+        if exc.partial:
+            raise FrameError(FrameErrorCode.INVALID) from exc
+        raise FrameError(FrameErrorCode.EOF) from exc
+    except asyncio.LimitOverrunError as exc:
+        raise FrameError(FrameErrorCode.TOO_LARGE) from exc
+    return decode_outer_frame(data, max_bytes=checked_limit)
+
+
+async def write_outer_frame(
+    writer: asyncio.StreamWriter,
+    frame: Mapping[str, object],
+    *,
+    max_bytes: int = MAX_OUTER_FRAME_BYTES,
+) -> None:
+    """Encode, write, and drain one bounded outer frame."""
+
+    if not isinstance(writer, asyncio.StreamWriter):
+        raise TypeError("writer must be an asyncio StreamWriter")
+    writer.write(encode_outer_frame(frame, max_bytes=max_bytes))
+    await writer.drain()
+
+
+def require_frame_string(
+    frame: Mapping[str, object],
+    name: str,
+    *,
+    max_chars: int = 256,
+    ascii_only: bool = True,
+) -> str:
+    """Return one bounded string field from an outer frame."""
+
+    value = frame.get(name)
+    if not isinstance(value, str) or not value or len(value) > max_chars:
+        raise FrameError(FrameErrorCode.INVALID)
+    if "\x00" in value or any(char in "\r\n" for char in value):
+        raise FrameError(FrameErrorCode.INVALID)
+    if ascii_only and not value.isascii():
+        raise FrameError(FrameErrorCode.INVALID)
+    return value
+
+
+def require_request_id(frame: Mapping[str, object]) -> str:
+    value = require_frame_string(
+        frame,
+        "request_id",
+        max_chars=MAX_REQUEST_ID_CHARS,
+        ascii_only=True,
+    )
+    alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
+    if any(char not in alphabet for char in value):
+        raise FrameError(FrameErrorCode.INVALID)
+    return value
+
+
+def require_frame_int(
+    frame: Mapping[str, object],
+    name: str,
+    *,
+    minimum: int = 0,
+    maximum: int = (1 << 63) - 1,
+) -> int:
+    value = frame.get(name)
+    if type(value) is not int or value < minimum or value > maximum:
+        raise FrameError(FrameErrorCode.INVALID)
+    return value
+
+
+def require_frame_bool(frame: Mapping[str, object], name: str) -> bool:
+    value = frame.get(name)
+    if not isinstance(value, bool):
+        raise FrameError(FrameErrorCode.INVALID)
+    return value
+
+
+def require_frame_bytes(
+    frame: Mapping[str, object],
+    name: str,
+    *,
+    expected_length: int | None = None,
+    max_length: int | None = None,
+) -> bytes:
+    value = frame.get(name)
+    if not isinstance(value, str):
+        raise FrameError(FrameErrorCode.INVALID)
+    try:
+        decoded = b64url_decode(value, expected_length=expected_length)
+    except (TypeError, ValueError) as exc:
+        raise FrameError(FrameErrorCode.INVALID) from exc
+    if max_length is not None:
+        if type(max_length) is not int or max_length < 0:
+            raise TypeError("max_length must be a non-negative integer or none")
+        if len(decoded) > max_length:
+            raise FrameError(FrameErrorCode.INVALID)
+    return decoded
+
+
+def make_frame(frame_type: str, /, **fields: object) -> dict[str, object]:
+    """Build one v1 outer frame using a neutral machine-facing type."""
+
+    if not isinstance(frame_type, str):
+        raise TypeError("frame_type must be a string")
+    value: dict[str, object] = {"v": PROTOCOL_VERSION, "type": frame_type}
+    value.update(fields)
+    _validate_outer_basics(value)
+    return value
+
+
+def _validate_outer_basics(frame: Mapping[str, object]) -> None:
+    version = frame.get("v")
+    if type(version) is not int or not 0 <= version <= 65535:
+        raise FrameError(FrameErrorCode.INVALID)
+    frame_type = frame.get("type")
+    if (
+        not isinstance(frame_type, str)
+        or not frame_type
+        or len(frame_type) > MAX_FRAME_TYPE_CHARS
+        or not frame_type.isascii()
+        or any(not (char.islower() or char.isdigit() or char == "_") for char in frame_type)
+    ):
+        raise FrameError(FrameErrorCode.INVALID)
+
+
+def _strict_frame_object(pairs: list[tuple[str, object]]) -> dict[str, object]:
+    result: dict[str, object] = {}
+    for key, value in pairs:
+        if key in result:
+            raise FrameError(FrameErrorCode.INVALID)
+        result[key] = value
+    return result
+
+
+def _reject_json_constant(value: str) -> object:
+    raise FrameError(FrameErrorCode.INVALID, value)
+
+
+def _validate_frame_limit(value: int) -> int:
+    if type(value) is not int or value < 128 or value > MAX_OUTER_FRAME_BYTES:
+        raise ValueError("max_bytes must be between 128 and 16384")
+    return value

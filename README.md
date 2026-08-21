@@ -3,10 +3,11 @@
 The Grid is a lightweight private terminal messaging application for one
 personal server and a small group of friends.
 
-This repository contains the completed Phase 1 foundation and Phase 2
-cryptographic core from the approved v1 product and technical specification.
-Networking, SQLite server behaviour, and the interactive terminal client are
-intentionally not implemented yet; they belong to Phases 3 and 4.
+This repository contains the completed Phase 1 foundation, Phase 2
+cryptographic core, and Phase 3 headless networking/server layer from the
+approved v1 product and technical specification. The interactive terminal
+client belongs to Phase 4; the final server-owner CLI and deployment workflow
+belong to Phase 5.
 
 ## requirements
 
@@ -22,8 +23,8 @@ intentionally not implemented yet; they belong to Phases 3 and 4.
 
 The launcher creates `.venv`, installs the local package and its runtime
 dependency, and starts the `grid` entry point. At the current phase, the
-no-argument entry point reports implementation status rather than pretending
-that the network client exists.
+no-argument entry point reports implementation status rather than exposing an
+unfinished interactive client.
 
 ## implemented
 
@@ -39,21 +40,29 @@ that the network client exists.
 
 ### Phase 2 — access and cryptography
 
-- frozen canonical binary encodings and labelled protocol constants
-- immutable Scrypt and HKDF profiles for access and comm phrases
-- separate access-authentication, board-encryption, and display-token keys
-- one-use access challenge verification and replay rejection
-- versioned server verifier state that does not contain the phrase or board key
-- opaque 16-byte display tokens
-- deterministic board JSON, per-message keys, ChaCha20-Poly1305, associated
-  metadata, and decrypted-ID/token binding
-- phrase-authenticated ephemeral X25519 comm handshakes
-- canonical role-bound transcripts and HMAC phrase proofs
-- separate directional keys, session IDs, and verification codes
-- strict 64-bit counters, direction-specific nonces, replay/gap rejection, and
-  encrypted identity, text, and close events
-- fixed interoperability vectors, independent vector cross-checks, and mismatch,
-  tamper, replay, role, counter, and cleanup tests
+- frozen canonical cryptographic encodings and fixed vectors
+- immutable Scrypt/HKDF profiles and separated access, board, and display keys
+- one-use access challenge proof and opaque display tokens
+- deterministic encrypted board records with authenticated metadata
+- phrase-authenticated ephemeral X25519 session handshakes
+- directional session keys, verification codes, counters, replay rejection,
+  encrypted identity exchange, text, and close events
+
+### Phase 3 — headless server and clients
+
+- strict bounded newline-delimited JSON protocol frames
+- TLS transport with certificate verification and explicit loopback-only plain
+  development mode
+- hello/version negotiation, access authentication, and display reservations
+- heartbeats, dead-connection cleanup, rate limits, and bounded outbound queues
+- encrypted SQLite board state, posting cooldowns, expiry, and 24-message
+  capacity enforcement
+- spent message-ID protection so a board AEAD key/nonce pair cannot be reused
+  within an access generation
+- sequence-consistent paginated canonical board snapshots and live updates
+- in-memory two-user waiting rooms, pairing, handshake forwarding, and encrypted
+  session routing
+- headless end-to-end clients used to prove the protocol without terminal UI
 
 ## tests
 
@@ -61,22 +70,26 @@ that the network client exists.
 .venv/bin/python -m unittest discover -s tests -v
 ```
 
-The tests deliberately do not expose a public word-list validation command,
-custom generation lists, phrase command-line arguments, or network behaviour
-before its approved phase.
+The suite covers foundation behavior, fixed cryptographic vectors, adversarial
+crypto cases, transport validation, TLS, SQLite board rules, live updates,
+heartbeats, bounded queues, and encrypted two-client sessions.
 
 ## protocol documentation
 
 - `docs/approved-specification.md` — immutable approved product and technical
   source of truth
-- `docs/protocol-encodings-v1.md` — frozen Phase 2 byte encodings and constants
+- `docs/protocol-encodings-v1.md` — frozen Phase 2 cryptographic byte encodings
 - `docs/cryptographic-test-vectors-v1.md` — human-readable vector index
-- `tests/vectors/phase2-v1.json` — machine-readable fixed vectors
-- `docs/phase-2-report.md` — implementation and verification report
+- `tests/vectors/phase2-v1.json` — machine-readable Phase 2 fixed vectors
+- `docs/protocol-transport-v1.md` — frozen Phase 3 outer transport and relay
+  rules
+- `docs/phase-2-report.md` — Phase 2 implementation report
+- `docs/phase-3-report.md` — Phase 3 implementation report
 
 ## current boundary
 
-Phase 2 contains no listener, remote connection, SQLite Hub, waiting-room
-server, or interactive terminal flow. Those boundaries are deliberate. Phase 3
-will connect the tested cryptographic components through bounded JSON frames,
-TLS, server state, and headless clients.
+The networking core is headless. `HeadlessClient` and `RelayServer` exist so the
+complete encrypted network behavior can be tested, but the ordinary `grid`
+command does not yet expose the interactive connection flow. Phase 4 will add
+the POSIX terminal boundary, first-launch flow, Hub rendering, input
+preservation, approved commands, plain/no-colour modes, and terminal restoration.

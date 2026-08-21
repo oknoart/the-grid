@@ -14,7 +14,7 @@ class RepositoryTests(unittest.TestCase):
         project = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))[
             "project"
         ]
-        self.assertEqual(project["version"], "0.2.0")
+        self.assertEqual(project["version"], "0.3.0")
         self.assertEqual(project["dependencies"], ["cryptography"])
         self.assertEqual(project["requires-python"], ">=3.11")
         self.assertEqual(project["scripts"], {"grid": "the_grid.cli:main"})
@@ -72,9 +72,26 @@ class RepositoryTests(unittest.TestCase):
         self.assertIn("Status:** frozen for implementation protocol v1", protocol)
         self.assertIn("session-data-aad-v1", protocol)
 
-    def test_security_modules_do_not_import_user_interface_copy(self) -> None:
+    def test_phase_three_protocol_and_report_are_present(self) -> None:
+        protocol = ROOT / "docs" / "protocol-transport-v1.md"
+        report = ROOT / "docs" / "phase-3-report.md"
+        self.assertTrue(protocol.is_file())
+        self.assertTrue(report.is_file())
+        protocol_text = protocol.read_text(encoding="utf-8")
+        self.assertIn("Status:** frozen for implementation protocol v1", protocol_text)
+        self.assertIn("board list pagination", protocol_text.lower())
+        self.assertIn("board_seen_ids", protocol_text)
+
+    def test_security_and_relay_modules_do_not_import_user_interface_copy(self) -> None:
         package = ROOT / "src" / "the_grid"
-        for name in ("access.py", "crypto.py", "hub.py", "protocol.py", "sessions.py"):
+        for name in (
+            "access.py",
+            "crypto.py",
+            "hub.py",
+            "protocol.py",
+            "sessions.py",
+            "relay.py",
+        ):
             text = (package / name).read_text(encoding="utf-8")
             with self.subTest(name=name):
                 self.assertNotIn("ui_text", text)
