@@ -86,6 +86,12 @@ class DeploymentFilesTests(unittest.TestCase):
             sysctl = fakebin / "sysctl"
             sysctl.write_text("#!/bin/sh\necho 0\n", encoding="utf-8")
             sysctl.chmod(0o755)
+            sw_vers = fakebin / "sw_vers"
+            sw_vers.write_text(
+                "#!/bin/sh\n[ \"${1:-}\" = \"-productVersion\" ] && echo 12.7.6\n",
+                encoding="utf-8",
+            )
+            sw_vers.chmod(0o755)
             curl = fakebin / "curl"
             curl.write_text(
                 "#!/bin/sh\n"
