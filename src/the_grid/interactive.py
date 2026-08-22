@@ -147,21 +147,7 @@ class InteractiveClientApp:
                     if self.terminal.options.plain:
                         await self.terminal.write_lines(["", ui_text.CONNECTED])
                     else:
-                        launch_status_padding = " " * max(
-                            0,
-                            len(ui_text.CONNECTING) + 3 - len(ui_text.CONNECTED),
-                        )
-                        await self.terminal.update_region(
-                            row=8,
-                            column=1,
-                            lines=[
-                                styled_line(
-                                    "    status   ",
-                                    (ui_text.CONNECTED, TextStyle.SUCCESS),
-                                    launch_status_padding,
-                                )
-                            ],
-                        )
+                        await self._show_launch_connected()
                     break
                 if not await self._offline_loop():
                     raise InteractiveExit()
@@ -170,7 +156,6 @@ class InteractiveClientApp:
             if not await self._select_display():
                 raise InteractiveExit()
 
-            await self.terminal.write_lines(["", styled_line((ui_text.CONNECTED, TextStyle.SUCCESS)), ""])
             self._hub_visible = True
             await self._show_hub(replace=True)
             self._board_task = asyncio.create_task(self._watch_board(), name="okno-terminal-board")
@@ -242,6 +227,15 @@ class InteractiveClientApp:
             "    access phrase",
         ]
         await self._display_view("launch", lambda: lines, replace=True)
+
+    async def _show_launch_connected(self) -> None:
+        lines: list[RenderableLine] = [
+            *(styled_line((line, TextStyle.HEADING)) for line in ui_text.OKNO_LOGO),
+            styled_line(("─" * ui_text.OKNO_LOGO_WIDTH, TextStyle.HEADING)),
+            "",
+            styled_line("    status   ", (ui_text.CONNECTED, TextStyle.SUCCESS)),
+        ]
+        await self._display_view("launch_connected", lambda: lines, replace=True)
 
     async def _authenticate(self, host: str, port: int, ca_file: Path | None) -> bool:
         while True:

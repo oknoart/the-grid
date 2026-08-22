@@ -45,13 +45,12 @@ class InteractiveInstalledServerTests(unittest.IsolatedAsyncioTestCase):
 
 
 
-    async def test_successful_launch_clears_connecting_animation_tail(self) -> None:
+    async def test_successful_launch_replaces_connecting_view(self) -> None:
         terminal = FakeTerminal()
         app = InteractiveClientApp(
             config=ClientConfig(),
             terminal=terminal,
         )
-
         app._resolve_server = lambda: ("grid.example.net", 7331, None)
         app._watch_resize = AsyncMock()
         app._animate_dots = AsyncMock()
@@ -66,10 +65,23 @@ class InteractiveInstalledServerTests(unittest.IsolatedAsyncioTestCase):
         result = await app.run()
 
         self.assertEqual(result, 0)
-        self.assertIn(
-            (8, 1, ["    status   connected    "]),
-            terminal.region_updates,
+        self.assertGreaterEqual(len(terminal.replacements), 2)
+
+        connected_view = terminal.replacements[-1]
+        self.assertIn("    status   connected", connected_view)
+        self.assertFalse(any("connecting" in line for line in connected_view))
+
+        # Successful launch no longer relies on a fixed-row cursor update.
+        self.assertFalse(
+            any(
+                "status   connected" in line
+                for _row, _column, lines in terminal.region_updates
+                for line in lines
+            )
         )
+
+        # Do not print a second standalone "connected" after ID selection.
+        self.assertNotIn("connected", terminal.lines)
 
 
 if __name__ == "__main__":
