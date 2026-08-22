@@ -14,7 +14,7 @@ class RepositoryTests(unittest.TestCase):
         project = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))[
             "project"
         ]
-        self.assertEqual(project["version"], "0.5.0")
+        self.assertEqual(project["version"], "0.5.1")
         self.assertEqual(project["dependencies"], ["cryptography"])
         self.assertEqual(project["requires-python"], ">=3.11")
         self.assertEqual(project["scripts"], {"okno": "the_grid.cli:main"})

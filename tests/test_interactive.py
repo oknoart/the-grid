@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import tempfile
 import unittest
+from unittest.mock import AsyncMock
 from pathlib import Path
 
 from phase4_support import FakeTerminal
@@ -42,6 +43,33 @@ class InteractiveInstalledServerTests(unittest.IsolatedAsyncioTestCase):
             self.assertFalse(path.exists())
             self.assertFalse(any("server" in prompt for prompt, _secret in terminal.prompts))
 
+
+
+    async def test_successful_launch_clears_connecting_animation_tail(self) -> None:
+        terminal = FakeTerminal()
+        app = InteractiveClientApp(
+            config=ClientConfig(),
+            terminal=terminal,
+        )
+
+        app._resolve_server = lambda: ("grid.example.net", 7331, None)
+        app._watch_resize = AsyncMock()
+        app._animate_dots = AsyncMock()
+        app._connect = AsyncMock()
+        app._authenticate = AsyncMock(return_value=True)
+        app._select_display = AsyncMock(return_value=True)
+        app._show_hub = AsyncMock()
+        app._watch_board = AsyncMock()
+        app._animate_cat = AsyncMock()
+        app._hub_loop = AsyncMock()
+
+        result = await app.run()
+
+        self.assertEqual(result, 0)
+        self.assertIn(
+            (8, 1, ["    status   connected    "]),
+            terminal.region_updates,
+        )
 
 
 if __name__ == "__main__":

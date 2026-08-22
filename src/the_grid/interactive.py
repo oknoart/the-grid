@@ -147,10 +147,20 @@ class InteractiveClientApp:
                     if self.terminal.options.plain:
                         await self.terminal.write_lines(["", ui_text.CONNECTED])
                     else:
+                        launch_status_padding = " " * max(
+                            0,
+                            len(ui_text.CONNECTING) + 3 - len(ui_text.CONNECTED),
+                        )
                         await self.terminal.update_region(
                             row=8,
                             column=1,
-                            lines=[styled_line("    status   ", (ui_text.CONNECTED, TextStyle.SUCCESS))],
+                            lines=[
+                                styled_line(
+                                    "    status   ",
+                                    (ui_text.CONNECTED, TextStyle.SUCCESS),
+                                    launch_status_padding,
+                                )
+                            ],
                         )
                     break
                 if not await self._offline_loop():

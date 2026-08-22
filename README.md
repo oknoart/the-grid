@@ -64,7 +64,7 @@ tests:
 
 protocol, crypto and deployment docs are in [`docs/`](docs/).
 
-## v0.5.0
+## v0.5.1
 
 macOS for now.
 
