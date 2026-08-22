@@ -334,10 +334,8 @@ class InteractiveClientApp:
             raise InteractiveExit()
         if line == "/post":
             await self._post()
-        elif line == "/start":
-            await self._start_comm()
-        elif line == "/join":
-            await self._join_comm()
+        elif line == "/comm":
+            await self._comm()
         elif line == "/status":
             next_line = await self._show_status_and_read(in_comm=False)
             await self._show_hub(replace=not self.terminal.options.plain)
@@ -395,38 +393,87 @@ class InteractiveClientApp:
             self._hub_notice = None
         await self._show_hub(replace=not self.terminal.options.plain)
 
-    async def _start_comm(self) -> None:
+    async def _comm(self) -> None:
         assert self.client is not None
         self._hub_visible = False
         self._cat_state = 0
-        try:
-            phrase = await self.client.start_session()
-        except ClientError as exc:
-            self._hub_notice = (self._session_setup_error(exc), TextStyle.ERROR)
-            self._hub_visible = True
-            await self._reload_hub_after_comm()
+        notice: tuple[str, TextStyle | None] | None = None
+
+        while True:
+            await self._display_view(
+                "comm_setup",
+                lambda: self._comm_setup_lines(notice=notice),
+                replace=True,
+            )
+            raw = await self.terminal.read_line(ui_text.INPUT_PROMPT)
+            command = raw.strip()
+
+            if command == "/cancel":
+                self._hub_notice = None
+                self._hub_visible = True
+                await self._reload_hub_after_comm()
+                return
+
+            if command == "/new":
+                try:
+                    phrase = await self.client.start_session()
+                except ClientError as exc:
+                    self._hub_notice = (self._session_setup_error(exc), TextStyle.ERROR)
+                    self._hub_visible = True
+                    await self._reload_hub_after_comm()
+                    return
+                await self._wait_for_comm(phrase)
+                return
+
+            if command.startswith("/"):
+                notice = (ui_text.COMMAND_UNKNOWN, TextStyle.ERROR)
+                continue
+
+            try:
+                phrase = normalise_phrase(raw)
+            except PhraseError:
+                notice = (ui_text.COMM_PHRASE_MALFORMED, TextStyle.ERROR)
+                continue
+
+            try:
+                await self.client.wait_session(phrase)
+            except ClientError as exc:
+                if exc.code is not ClientErrorCode.SESSION_UNAVAILABLE:
+                    self._hub_notice = (self._session_setup_error(exc), TextStyle.ERROR)
+                    self._hub_visible = True
+                    await self._reload_hub_after_comm()
+                    return
+                await self._connect_to_comm(phrase)
+                return
+
+            await self._wait_for_comm(phrase)
             return
 
+    async def _wait_for_comm(self, phrase: str) -> None:
+        assert self.client is not None
         notice: tuple[str, TextStyle | None] | None = None
 
         def waiting_lines() -> list[RenderableLine]:
-            return self._start_comm_lines(phrase, notice=notice)
+            return self._comm_waiting_lines(phrase, notice=notice)
 
-        await self._display_view("start_comm", waiting_lines, replace=True)
+        await self._display_view("comm_waiting", waiting_lines, replace=True)
         complete_task = asyncio.create_task(self.client.complete_session())
         dots_task = asyncio.create_task(
             self._animate_dots(
-                kind="start_comm",
+                kind="comm_waiting",
                 row=7,
                 base=ui_text.WAITING_FOR_CONNECTION,
             ),
-            name="okno-start-comm-dots",
+            name="okno-comm-waiting-dots",
         )
         try:
             while True:
-                read_task = asyncio.create_task(self.terminal.read_line(ui_text.INPUT_PROMPT))
+                read_task = asyncio.create_task(
+                    self.terminal.read_line(ui_text.INPUT_PROMPT)
+                )
                 done, pending = await asyncio.wait(
-                    {complete_task, read_task}, return_when=asyncio.FIRST_COMPLETED
+                    {complete_task, read_task},
+                    return_when=asyncio.FIRST_COMPLETED,
                 )
                 if complete_task in done:
                     read_task.cancel()
@@ -437,13 +484,18 @@ class InteractiveClientApp:
                 command = read_task.result().strip()
                 if command != "/cancel":
                     notice = (ui_text.COMMAND_UNKNOWN, TextStyle.ERROR)
-                    await self._display_view("start_comm", waiting_lines, replace=not self.terminal.options.plain)
+                    await self._display_view(
+                        "comm_waiting",
+                        waiting_lines,
+                        replace=not self.terminal.options.plain,
+                    )
                     continue
 
                 try:
                     cancelled = await self.client.cancel_waiting_session()
                 except ClientError:
                     cancelled = False
+
                 if cancelled:
                     complete_task.cancel()
                     await asyncio.gather(complete_task, return_exceptions=True)
@@ -451,9 +503,11 @@ class InteractiveClientApp:
                     self._hub_visible = True
                     await self._reload_hub_after_comm()
                     return
-                # Pairing won the race. Do not report cancellation; finish the handshake.
+
+                # Pairing won the race. Finish the handshake.
                 await complete_task
                 break
+
         except ClientError as exc:
             if exc.code is ClientErrorCode.TIMEOUT:
                 self._hub_notice = (ui_text.COMM_EXPIRED, TextStyle.WARNING)
@@ -471,37 +525,24 @@ class InteractiveClientApp:
 
         await self._comm_loop()
 
-    async def _join_comm(self) -> None:
+    async def _connect_to_comm(self, phrase: str) -> None:
         assert self.client is not None
-        self._hub_visible = False
-        notice: tuple[str, TextStyle | None] | None = None
-
-        while True:
-            def prompt_lines() -> list[RenderableLine]:
-                return self._join_comm_lines(notice=notice, connecting=False)
-
-            await self._display_view("join_comm", prompt_lines, replace=True)
-            raw = await self.terminal.read_line(ui_text.INPUT_PROMPT)
-            if raw.strip() == "/cancel":
-                self._hub_notice = None
-                self._hub_visible = True
-                await self._reload_hub_after_comm()
-                return
-            try:
-                phrase = normalise_phrase(raw)
-                break
-            except PhraseError:
-                notice = (ui_text.COMM_PHRASE_MALFORMED, TextStyle.ERROR)
 
         await self._display_view(
-            "join_comm",
-            lambda: self._join_comm_lines(notice=None, connecting=True),
+            "comm_connecting",
+            self._comm_connecting_lines,
             replace=True,
         )
+
         dots_task = asyncio.create_task(
-            self._animate_dots(kind="join_comm", row=3, base=ui_text.CONNECTING_COMM),
-            name="okno-join-comm-dots",
+            self._animate_dots(
+                kind="comm_connecting",
+                row=3,
+                base=ui_text.CONNECTING_COMM,
+            ),
+            name="okno-comm-connecting-dots",
         )
+
         try:
             await self.client.join_session(phrase)
             await self.client.complete_session()
@@ -513,6 +554,7 @@ class InteractiveClientApp:
         finally:
             dots_task.cancel()
             await asyncio.gather(dots_task, return_exceptions=True)
+
         await self._comm_loop()
 
     async def _comm_loop(self) -> None:
@@ -872,7 +914,26 @@ class InteractiveClientApp:
         )
         return lines
 
-    def _start_comm_lines(
+    def _comm_setup_lines(
+        self,
+        *,
+        notice: tuple[str, TextStyle | None] | None,
+    ) -> list[RenderableLine]:
+        width = self._panel_width()
+        lines: list[RenderableLine] = [
+            styled_line((self._title_rule(ui_text.COMM, width), TextStyle.HEADING)),
+            "",
+            ui_text.COMM_PHRASE_LABEL,
+            "",
+            styled_line((ui_text.COMM_SETUP_COMMANDS, TextStyle.DIM)),
+        ]
+        if notice is not None:
+            text, style = notice
+            lines.extend(["", styled_line((text, style))])
+        lines.extend(["", styled_line(("─" * width, TextStyle.HEADING)), ""])
+        return lines
+
+    def _comm_waiting_lines(
         self,
         phrase: str,
         *,
@@ -880,7 +941,7 @@ class InteractiveClientApp:
     ) -> list[RenderableLine]:
         width = self._panel_width()
         lines: list[RenderableLine] = [
-            styled_line((self._title_rule(ui_text.START_COMM, width), TextStyle.HEADING)),
+            styled_line((self._title_rule(ui_text.COMM, width), TextStyle.HEADING)),
             "",
             ui_text.COMM_PHRASE_LABEL,
             "",
@@ -896,32 +957,16 @@ class InteractiveClientApp:
         lines.extend(["", styled_line(("─" * width, TextStyle.HEADING)), ""])
         return lines
 
-    def _join_comm_lines(
-        self,
-        *,
-        notice: tuple[str, TextStyle | None] | None,
-        connecting: bool,
-    ) -> list[RenderableLine]:
+    def _comm_connecting_lines(self) -> list[RenderableLine]:
         width = self._panel_width()
-        lines: list[RenderableLine] = [
-            styled_line((self._title_rule(ui_text.JOIN_COMM, width), TextStyle.HEADING)),
+        return [
+            styled_line((self._title_rule(ui_text.COMM, width), TextStyle.HEADING)),
+            "",
+            ui_text.CONNECTING_COMM + ".",
+            "",
+            styled_line(("─" * width, TextStyle.HEADING)),
             "",
         ]
-        if connecting:
-            lines.append(ui_text.CONNECTING_COMM + ".")
-        else:
-            lines.extend(
-                [
-                    ui_text.COMM_PHRASE_LABEL,
-                    "",
-                    styled_line((ui_text.WAIT_COMMANDS, TextStyle.DIM)),
-                ]
-            )
-        if notice is not None:
-            text, style = notice
-            lines.extend(["", styled_line((text, style))])
-        lines.extend(["", styled_line(("─" * width, TextStyle.HEADING)), ""])
-        return lines
 
     async def _show_status_and_read(self, *, in_comm: bool, peer_id: str | None = None) -> str:
         await self._display_view(

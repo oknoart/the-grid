@@ -32,9 +32,35 @@ sed \
     "$TEMPLATE" > "$TMP"
 
 plutil -lint "$TMP" >/dev/null
-sudo launchctl bootout "system/$LABEL" >/dev/null 2>&1 || true
+# Install the new service definition before touching the running service.
 sudo install -o root -g wheel -m 644 "$TMP" "$PLIST"
-sudo launchctl bootstrap system "$PLIST"
-sudo launchctl kickstart -k "system/$LABEL"
+
+service_loaded() {
+    sudo launchctl print "system/$LABEL" >/dev/null 2>&1
+}
+
+# Stop the existing service only when launchd currently knows about it.
+if service_loaded; then
+    sudo launchctl bootout "system/$LABEL" ||
+        { echo "could not stop existing okno grid service" >&2; exit 1; }
+fi
+
+# launchd can briefly retain state after bootout. Retry bootstrap once
+# after clearing any stale registration.
+if ! sudo launchctl bootstrap system "$PLIST"; then
+    sleep 1
+    sudo launchctl bootout "system/$LABEL" >/dev/null 2>&1 || true
+    sudo launchctl bootstrap system "$PLIST" ||
+        { echo "could not load okno grid service" >&2; exit 1; }
+fi
+
+sudo launchctl kickstart -k "system/$LABEL" ||
+    { echo "could not start okno grid service" >&2; exit 1; }
+
+sleep 1
+
+service_loaded ||
+    { echo "okno grid service did not remain loaded" >&2; exit 1; }
+
 printf 'okno grid service installed and started\n'
 printf 'status: sudo launchctl print system/%s\n' "$LABEL"

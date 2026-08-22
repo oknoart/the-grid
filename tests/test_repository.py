@@ -11,10 +11,16 @@ ROOT = Path(__file__).resolve().parents[1]
 
 class RepositoryTests(unittest.TestCase):
     def test_runtime_dependency_is_only_cryptography(self) -> None:
-        project = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))[
-            "project"
-        ]
-        self.assertEqual(project["version"], "0.5.1")
+        document = tomllib.loads(
+            (ROOT / "pyproject.toml").read_text(encoding="utf-8")
+        )
+        project = document["project"]
+        self.assertNotIn("version", project)
+        self.assertEqual(project["dynamic"], ["version"])
+        self.assertEqual(
+            document["tool"]["setuptools"]["dynamic"]["version"],
+            {"attr": "the_grid.version.VERSION"},
+        )
         self.assertEqual(project["dependencies"], ["cryptography"])
         self.assertEqual(project["requires-python"], ">=3.11")
         self.assertEqual(project["scripts"], {"okno": "the_grid.cli:main"})

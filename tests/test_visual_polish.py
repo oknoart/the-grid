@@ -174,12 +174,12 @@ class VisualPolishTests(unittest.IsolatedAsyncioTestCase):
             task.cancel()
             await asyncio.gather(task, return_exceptions=True)
 
-    async def test_join_comm_can_be_cancelled_before_entering_a_phrase(self) -> None:
+    async def test_comm_can_be_cancelled_before_entering_a_phrase(self) -> None:
         app = self._app()
         terminal = app.terminal
         terminal.feed("/cancel")
 
-        await app._join_comm()
+        await app._comm()
 
         self.assertTrue(app._hub_visible)
         self.assertTrue(any("/cancel" in line for view in terminal.replacements for line in view))
@@ -188,9 +188,9 @@ class VisualPolishTests(unittest.IsolatedAsyncioTestCase):
     async def test_passive_dot_animation_updates_only_status_line(self) -> None:
         app = self._app()
         terminal = app.terminal
-        app._current_view_kind = "start_comm"
+        app._current_view_kind = "comm_waiting"
         task = asyncio.create_task(
-            app._animate_dots(kind="start_comm", row=7, base="waiting for connection")
+            app._animate_dots(kind="comm_waiting", row=7, base="waiting for connection")
         )
         try:
             await asyncio.sleep(0.58)

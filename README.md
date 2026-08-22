@@ -10,7 +10,7 @@ a comm is private, two-person and end-to-end encrypted.
 
 ## install
 
-macOS — apple silicon or intel.
+macOS 12+ — apple silicon or intel.
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/oknoart/the-grid/main/install.sh | sh
@@ -64,7 +64,7 @@ tests:
 
 protocol, crypto and deployment docs are in [`docs/`](docs/).
 
-## v0.5.1
+## right now
 
 macOS for now.
 

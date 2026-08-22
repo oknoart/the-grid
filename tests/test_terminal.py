@@ -305,8 +305,8 @@ class PosixTerminalTests(unittest.IsolatedAsyncioTestCase):
             terminal.enter()
             first = asyncio.create_task(terminal.read_line())
             await asyncio.sleep(0.02)
-            os.write(master_fd, b"/join\nphrase words\n")
-            self.assertEqual(await asyncio.wait_for(first, 1), "/join")
+            os.write(master_fd, b"/comm\nphrase words\n")
+            self.assertEqual(await asyncio.wait_for(first, 1), "/comm")
             second = asyncio.create_task(terminal.read_line())
             self.assertEqual(await asyncio.wait_for(second, 1), "phrase words")
         finally:

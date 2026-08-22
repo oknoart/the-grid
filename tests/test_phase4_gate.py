@@ -71,9 +71,10 @@ class PhaseFourCompletionGateTests(unittest.IsolatedAsyncioTestCase):
                     left_terminal.feed("are you receiving this?")
                     await right_terminal.wait_for_text("ABC < are you receiving this?")
 
-                    left_terminal.feed("/start")
+                    left_terminal.feed("/comm")
+                    left_terminal.feed("/new")
                     await left_terminal.wait_for_text("waiting for connection")
-                    right_terminal.feed("/join")
+                    right_terminal.feed("/comm")
                     right_terminal.feed("velvet orbit green cabin")
 
                     await asyncio.gather(
@@ -146,9 +147,10 @@ class PhaseFourCompletionGateTests(unittest.IsolatedAsyncioTestCase):
                         left_terminal.wait_for_text("THE HUB"),
                         right_terminal.wait_for_text("THE HUB"),
                     )
-                    left_terminal.feed("/start")
+                    left_terminal.feed("/comm")
+                    left_terminal.feed("/new")
                     await left_terminal.wait_for_text("waiting for connection")
-                    right_terminal.feed("/join")
+                    right_terminal.feed("/comm")
                     right_terminal.feed("velvet orbit green cabin")
                     await asyncio.gather(
                         left_terminal.wait_for_text("ABC × J7K / encrypted"),

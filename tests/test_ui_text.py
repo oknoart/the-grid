@@ -21,8 +21,8 @@ class UiTextTests(unittest.TestCase):
 
     def test_visual_uppercase_is_limited_to_approved_headings(self) -> None:
         self.assertEqual(
-            {ui_text.THE_HUB, ui_text.COMM, ui_text.START_COMM, ui_text.JOIN_COMM, ui_text.STATUS, ui_text.HELP},
-            {"THE HUB", "COMM", "START COMM", "JOIN COMM", "STATUS", "HELP"},
+            {ui_text.THE_HUB, ui_text.COMM, ui_text.STATUS, ui_text.HELP},
+            {"THE HUB", "COMM", "STATUS", "HELP"},
         )
         ordinary = [
             ui_text.CONNECTING,

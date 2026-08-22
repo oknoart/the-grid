@@ -22,8 +22,6 @@ OKNO_LOGO_WIDTH: Final = max(len(line) for line in OKNO_LOGO)
 
 THE_HUB: Final = "THE HUB"
 COMM: Final = "COMM"
-START_COMM: Final = "START COMM"
-JOIN_COMM: Final = "JOIN COMM"
 STATUS: Final = "STATUS"
 HELP: Final = "HELP"
 
@@ -81,17 +79,17 @@ MINIMUM_WIDTH: Final = "minimum width: 40 columns"
 NO_MESSAGES: Final = "no messages"
 PRESS_RETURN_TO_GO_BACK: Final = "press return to go back"
 
-HUB_COMMAND_LIST: Final = ("/post", "/start", "/join", "/status", "/help", "/exit")
+HUB_COMMAND_LIST: Final = ("/post", "/comm", "/status", "/help", "/exit")
 COMM_COMMAND_LIST: Final = ("/status", "/end", "/help")
 HUB_COMMANDS: Final = "    ".join(HUB_COMMAND_LIST)
 COMM_COMMANDS: Final = "    ".join(COMM_COMMAND_LIST)
+COMM_SETUP_COMMANDS: Final = "/new     /cancel"
 WAIT_COMMANDS: Final = "/cancel"
 OFFLINE_COMMANDS: Final = "/retry     /exit"
 
 HUB_HELP: Final = (
     "/post       post a message to the hub",
-    "/start      start a comm",
-    "/join       join a comm",
+    "/comm       open a comm",
     "/status     show connection status",
     "/help       show commands",
     "/exit       disconnect",

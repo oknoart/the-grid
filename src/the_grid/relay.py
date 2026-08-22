@@ -216,6 +216,7 @@ class _WaitingRoom:
 @dataclass(slots=True)
 class _SessionRoute:
     pair_id: bytes
+    room_id: bytes
     creator: _RelayConnection
     joiner: _RelayConnection
     creator_hello: HandshakeHello
@@ -496,7 +497,9 @@ class RelayServer:
         self._cleanup_sessions(self.clock())
         if connection.waiting_room_id is not None or connection.pair_id is not None:
             return False
-        if room_id in self._waiting_rooms:
+        if room_id in self._waiting_rooms or any(
+            route.room_id == room_id for route in self._routes.values()
+        ):
             return False
         room = _WaitingRoom(
             room_id=room_id,
@@ -542,6 +545,7 @@ class RelayServer:
         pair_id = secrets.token_bytes(PAIR_ID_BYTES)
         route = _SessionRoute(
             pair_id=pair_id,
+            room_id=room_id,
             creator=room.creator,
             joiner=connection,
             creator_hello=room.hello,

@@ -61,6 +61,45 @@ class SessionRoutingTests(unittest.IsolatedAsyncioTestCase):
                 await asyncio.gather(creator.close(), joiner.close(), return_exceptions=True)
                 await server.close()
 
+    async def test_active_phrase_is_unavailable_to_third_user_then_reusable(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            setup, server, creator, joiner = await self._ready_pair(Path(temporary))
+            host, port = server.address
+            third = HeadlessClient(
+                host,
+                port,
+                allow_plain=True,
+                request_timeout=2,
+            )
+            try:
+                await third.connect_ready(setup.phrase, "M2X")
+
+                phrase = await creator.start_session()
+                await joiner.join_session(phrase)
+                await asyncio.gather(
+                    creator.complete_session(),
+                    joiner.complete_session(),
+                )
+
+                with self.assertRaises(ClientError):
+                    await third.wait_session(phrase)
+
+                with self.assertRaises(ClientError):
+                    await third.join_session(phrase)
+
+                await creator.end_session()
+
+                await third.wait_session(phrase)
+                self.assertTrue(await third.cancel_waiting_session())
+            finally:
+                await asyncio.gather(
+                    creator.close(),
+                    joiner.close(),
+                    third.close(),
+                    return_exceptions=True,
+                )
+                await server.close()
+
     async def test_paired_but_unfinished_handshake_expires(self) -> None:
         limits = RelayLimits(
             heartbeat_interval=0.05,

@@ -26,7 +26,29 @@ jobs:
           cache: pip
       - run: python -m pip install --upgrade pip
       - run: python -m pip install -e '.[release]'
-      - run: ./scripts/build-macos-release.sh
+
+      - name: Verify release tag matches app version
+        shell: bash
+        run: |
+          set -euo pipefail
+          APP_VERSION=$(python -c 'from the_grid import __version__; print(__version__)')
+          TAG_VERSION=${GITHUB_REF_NAME#v}
+
+          if [ "$GITHUB_REF_NAME" = "$TAG_VERSION" ]; then
+            echo "release tag must begin with v" >&2
+            exit 1
+          fi
+
+          if [ "$APP_VERSION" != "$TAG_VERSION" ]; then
+            echo "tag $GITHUB_REF_NAME does not match okno $APP_VERSION" >&2
+            exit 1
+          fi
+
+      - name: Build release
+        shell: bash
+        run: |
+          set -euo pipefail
+          OKNO_EXPECTED_VERSION="${GITHUB_REF_NAME#v}" ./scripts/build-macos-release.sh
       - uses: actions/upload-artifact@v4
         with:
           name: okno-macos-${{ matrix.arch }}

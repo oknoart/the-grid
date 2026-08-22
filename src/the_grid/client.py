@@ -461,8 +461,12 @@ class HeadlessClient:
         return BoardPostOutcome(ok, remaining, reason)
 
     async def start_session(self) -> str:
-        self._require_ready_for_session()
         phrase = generate_phrase()
+        await self.wait_session(phrase)
+        return phrase
+
+    async def wait_session(self, phrase: str) -> None:
+        self._require_ready_for_session()
         material = await asyncio.to_thread(
             derive_session_phrase_material,
             phrase,
@@ -480,7 +484,6 @@ class HeadlessClient:
         if not require_frame_bool(response, "ok"):
             self._discard_session_state()
             raise ClientError(ClientErrorCode.SESSION_UNAVAILABLE)
-        return phrase
 
     async def cancel_waiting_session(self) -> bool:
         """Cancel this client's unpaired creator waiting room, if still waiting.

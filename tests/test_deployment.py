@@ -27,7 +27,15 @@ class DeploymentFilesTests(unittest.TestCase):
         self.assertIn("arm64", text)
         self.assertIn("x86_64", text)
         self.assertIn("SHA256SUMS.txt", text)
-        self.assertIn("/usr/local/bin", text)
+        self.assertIn('.local/bin', text)
+        self.assertIn("sw_vers -productVersion", text)
+        self.assertIn("MACOS_MAJOR", text)
+        self.assertNotIn("sudo ", text)
+
+        # The downloaded executable must run successfully before it is installed.
+        version_check = text.index("VERSION_OUTPUT=$(./okno --version")
+        binary_install = text.index("install -m 755 ./okno")
+        self.assertLess(version_check, binary_install)
         self.assertNotIn("brew install", text)
         self.assertNotIn("pip install", text)
         self.assertNotIn("python3", text)
@@ -132,6 +140,8 @@ class DeploymentFilesTests(unittest.TestCase):
         self.assertIn("--name okno", text)
         self.assertIn("--collect-data the_grid", text)
         self.assertIn("okno-macos-${ARCH}.tar.gz", text)
+        self.assertIn("OKNO_EXPECTED_VERSION", text)
+        self.assertIn('VERSION_OUTPUT=$("dist/okno" --version)', text)
         subprocess.run(["sh", "-n", script], check=True)
 
     def test_pyinstaller_is_release_only_not_runtime_dependency(self) -> None:
@@ -161,6 +171,28 @@ class DeploymentFilesTests(unittest.TestCase):
             script = ROOT / "deploy" / "macos" / script_name
             self.assertTrue(os.access(script, os.X_OK))
             subprocess.run(["sh", "-n", script], check=True)
+
+    def test_server_service_installer_is_idempotent_and_verifies_launchd(self) -> None:
+        script = ROOT / "deploy" / "macos" / "install-server-service.sh"
+        text = script.read_text(encoding="utf-8")
+
+        self.assertIn('service_loaded()', text)
+        self.assertIn('launchctl print "system/$LABEL"', text)
+        self.assertIn('if service_loaded; then', text)
+        self.assertIn('launchctl bootout "system/$LABEL"', text)
+        self.assertGreaterEqual(text.count("launchctl bootstrap system"), 2)
+        self.assertIn('launchctl kickstart -k "system/$LABEL"', text)
+        self.assertIn("sleep 1", text)
+
+        # The replacement plist is safely installed before the existing
+        # service is stopped.
+        plist_install = text.index(
+            'sudo install -o root -g wheel -m 644 "$TMP" "$PLIST"'
+        )
+        service_stop = text.index('if service_loaded; then')
+        self.assertLess(plist_install, service_stop)
+
+        subprocess.run(["sh", "-n", script], check=True)
 
     def test_ci_covers_macos_and_linux_and_release_builds_both_mac_architectures(self) -> None:
         ci = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")

@@ -32,7 +32,23 @@ python3 -m PyInstaller \
     --specpath build/pyinstaller \
     scripts/okno_entry.py
 
-"dist/okno" --version
+VERSION_OUTPUT=$("dist/okno" --version)
+
+case "$VERSION_OUTPUT" in
+    "okno "*) ;;
+    *)
+        echo "frozen okno returned an invalid version" >&2
+        exit 1
+        ;;
+esac
+
+if [ -n "${OKNO_EXPECTED_VERSION:-}" ] &&
+    [ "$VERSION_OUTPUT" != "okno $OKNO_EXPECTED_VERSION" ]; then
+    echo "frozen version does not match release tag" >&2
+    exit 1
+fi
+
+printf '%s\n' "$VERSION_OUTPUT"
 mkdir -p build/release
 ARCHIVE="build/release/okno-macos-${ARCH}.tar.gz"
 rm -f "$ARCHIVE"
