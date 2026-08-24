@@ -38,6 +38,7 @@ CAT_LEFT = "   >•   • <"
 CAT_RIGHT = "   > •   •<"
 CAT_INTERVAL_SECONDS = 0.5
 DOT_INTERVAL_SECONDS = 0.5
+CONNECT_TIMEOUT_SECONDS = 10.0
 
 
 class TerminalPort(Protocol):
@@ -205,7 +206,11 @@ class InteractiveClientApp:
 
         client = HeadlessClient(host, port, ssl_context=tls, client_version=__version__)
         try:
-            await client.connect()
+            await asyncio.wait_for(client.connect(), timeout=CONNECT_TIMEOUT_SECONDS)
+        except asyncio.TimeoutError as exc:
+            await client.close()
+            self._hub_notice = (ui_text.SERVER_UNREACHABLE, TextStyle.ERROR)
+            raise ServerUnavailable() from exc
         except ClientError as exc:
             await client.close()
             self._hub_notice = (self._connection_error_text(exc), TextStyle.ERROR)
@@ -307,6 +312,7 @@ class InteractiveClientApp:
                 styled_line("    status   ", (ui_text.OFFLINE, TextStyle.ERROR)),
                 "",
                 f"    {ui_text.UNABLE_TO_REACH_GRID}",
+                f"    {ui_text.CHECK_CONNECTION_OR_NETWORK}",
                 "",
                 f"    {ui_text.OFFLINE_COMMANDS}",
                 "",

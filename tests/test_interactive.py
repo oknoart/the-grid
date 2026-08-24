@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+import asyncio
 import tempfile
 import unittest
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, patch
 from pathlib import Path
 
 from phase4_support import FakeTerminal
@@ -44,6 +45,44 @@ class InteractiveInstalledServerTests(unittest.IsolatedAsyncioTestCase):
             self.assertFalse(any("server" in prompt for prompt, _secret in terminal.prompts))
 
 
+
+    async def test_initial_connection_is_capped_at_ten_seconds(self) -> None:
+        terminal = FakeTerminal()
+        app = InteractiveClientApp(
+            config=ClientConfig(),
+            terminal=terminal,
+        )
+        fake_client = AsyncMock()
+
+        async def timeout_wait_for(awaitable, *, timeout):
+            self.assertEqual(timeout, 10.0)
+            awaitable.close()
+            raise asyncio.TimeoutError()
+
+        with (
+            patch("the_grid.interactive.HeadlessClient", return_value=fake_client),
+            patch("the_grid.interactive.asyncio.wait_for", side_effect=timeout_wait_for),
+        ):
+            with self.assertRaises(ServerUnavailable):
+                await app._connect("grid.example.net", 7331, None)
+
+        fake_client.close.assert_awaited_once()
+        self.assertIsNone(app.client)
+
+    async def test_offline_view_suggests_checking_connection_or_network(self) -> None:
+        terminal = FakeTerminal()
+        terminal.feed("/exit")
+        app = InteractiveClientApp(
+            config=ClientConfig(),
+            terminal=terminal,
+        )
+
+        self.assertFalse(await app._offline_loop())
+
+        offline_view = terminal.replacements[-1]
+        self.assertIn("    unable to reach the grid", offline_view)
+        self.assertIn("    check your connection or try another network", offline_view)
+        self.assertIn("    /retry     /exit", offline_view)
 
     async def test_successful_launch_replaces_connecting_view(self) -> None:
         terminal = FakeTerminal()
