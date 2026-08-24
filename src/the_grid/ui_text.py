@@ -22,7 +22,7 @@ OKNO_LOGO_WIDTH: Final = max(len(line) for line in OKNO_LOGO)
 
 THE_HUB: Final = "THE HUB"
 COMM: Final = "COMM"
-STATUS: Final = "STATUS"
+INFO: Final = "INFO"
 HELP: Final = "HELP"
 
 END_OF_LINE: Final = terms.END_OF_LINE
@@ -31,8 +31,9 @@ CONNECTED: Final = "connected"
 OFFLINE: Final = "offline"
 UNABLE_TO_REACH_GRID: Final = "unable to reach the grid"
 ACCESS_PHRASE_LABEL: Final = "access phrase"
-ENTER_ID_LABEL: Final = "enter 3 character id"
+ENTER_ID_LABEL: Final = "choose a 3 character id"
 COMM_PHRASE_LABEL: Final = "comm phrase"
+COMM_PHRASE_ENTRY_LABEL: Final = "enter a comm phrase"
 WAITING_FOR_CONNECTION: Final = "waiting for connection"
 CONNECTING_COMM: Final = "connecting"
 CONNECTION_ESTABLISHED: Final = "connection established"
@@ -79,8 +80,8 @@ MINIMUM_WIDTH: Final = "minimum width: 40 columns"
 NO_MESSAGES: Final = "no messages"
 PRESS_RETURN_TO_GO_BACK: Final = "press return to go back"
 
-HUB_COMMAND_LIST: Final = ("/post", "/comm", "/status", "/help", "/exit")
-COMM_COMMAND_LIST: Final = ("/status", "/end", "/help")
+HUB_COMMAND_LIST: Final = ("/post", "/comm", "/info", "/help", "/exit")
+COMM_COMMAND_LIST: Final = ("/info", "/end", "/help")
 HUB_COMMANDS: Final = "    ".join(HUB_COMMAND_LIST)
 COMM_COMMANDS: Final = "    ".join(COMM_COMMAND_LIST)
 COMM_SETUP_COMMANDS: Final = "/new     /cancel"
@@ -89,14 +90,14 @@ OFFLINE_COMMANDS: Final = "/retry     /exit"
 
 HUB_HELP: Final = (
     "/post       post a message to the hub",
-    "/comm       open a comm",
-    "/status     show connection status",
+    "/comm       open a private encrypted comm",
+    "/info       show connection and grid info",
     "/help       show commands",
-    "/exit       disconnect",
+    "/exit       leave the grid",
 )
 
 COMM_HELP: Final = (
-    "/status     show comm status",
+    "/info       show comm and connection info",
     "/end        end the comm",
     "/help       show commands",
 )

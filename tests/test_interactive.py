@@ -67,8 +67,13 @@ class InteractiveInstalledServerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result, 0)
         self.assertGreaterEqual(len(terminal.replacements), 2)
 
+        connecting_view = terminal.replacements[0]
+        self.assertTrue(any("status   connecting" in line for line in connecting_view))
+        self.assertFalse(any("access phrase" in line for line in connecting_view))
+
         connected_view = terminal.replacements[-1]
         self.assertIn("    status   connected", connected_view)
+        self.assertIn("    access phrase", connected_view)
         self.assertFalse(any("connecting" in line for line in connected_view))
 
         # Successful launch no longer relies on a fixed-row cursor update.

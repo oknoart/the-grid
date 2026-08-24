@@ -99,7 +99,7 @@ class VisualPolishTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("    ABC × J7K / encrypted", lines)
         self.assertIn("J7K < hello", lines)
         self.assertIn("ABC > hello. can you hear me?", lines)
-        self.assertIn("/status    /end    /help", lines)
+        self.assertIn("/info    /end    /help", lines)
         self.assertFalse(any("/clear" in line for line in lines))
         self.assertIn("write a message", lines)
 
@@ -115,7 +115,7 @@ class VisualPolishTests(unittest.IsolatedAsyncioTestCase):
         lines = [line_text(line) for line in app._hub_lines()]
         self.assertFalse(any("post available in" in line for line in lines))
 
-    def test_status_and_help_match_approved_reduced_copy(self) -> None:
+    def test_info_and_help_match_approved_copy(self) -> None:
         app = self._app()
         hub_status = [line_text(line) for line in app._status_lines(in_comm=False, peer_id=None)]
         self.assertIn("server          connected", hub_status)
@@ -131,7 +131,12 @@ class VisualPolishTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("encrypted       yes", comm_status)
         self.assertIn("verification    QTCE-9QSD", comm_status)
 
+        hub_help = [line_text(line) for line in app._help_lines(in_comm=False)]
+        self.assertTrue(any("/comm       open a private encrypted comm" in line for line in hub_help))
+        self.assertTrue(any("/info       show connection and grid info" in line for line in hub_help))
+
         comm_help = [line_text(line) for line in app._help_lines(in_comm=True)]
+        self.assertTrue(any("/info       show comm and connection info" in line for line in comm_help))
         self.assertTrue(any("/end        end the comm" in line for line in comm_help))
         self.assertFalse(any("/clear" in line for line in comm_help))
         self.assertIn("press return to go back", comm_help)
@@ -144,7 +149,7 @@ class VisualPolishTests(unittest.IsolatedAsyncioTestCase):
         terminal.feed("abc")
         self.assertTrue(await app._select_display())
         self.assertEqual(client.display_id, "ABC")
-        self.assertIn("    enter 3 character id", terminal.lines)
+        self.assertIn("    choose a 3 character id", terminal.lines)
         self.assertEqual(terminal.prompts, [("    > ", False)])
         self.assertFalse(any("id [" in line.lower() for line in terminal.lines))
 
@@ -182,6 +187,9 @@ class VisualPolishTests(unittest.IsolatedAsyncioTestCase):
         await app._comm()
 
         self.assertTrue(app._hub_visible)
+        self.assertTrue(
+            any("enter a comm phrase" in line for view in terminal.replacements for line in view)
+        )
         self.assertTrue(any("/cancel" in line for view in terminal.replacements for line in view))
         self.assertIn("─────────────────────── THE HUB ────────────────────────", terminal.replacements[-1])
 
@@ -201,6 +209,68 @@ class VisualPolishTests(unittest.IsolatedAsyncioTestCase):
         finally:
             task.cancel()
             await asyncio.gather(task, return_exceptions=True)
+
+    async def test_height_only_resize_redraws_hub_and_recalculates_cat(self) -> None:
+        app = self._app()
+        terminal = app.terminal
+        app._hub_visible = True
+
+        await app._show_hub(replace=True)
+        self.assertTrue(app._cat_animatable)
+        initial_replacements = len(terminal.replacements)
+
+        task = asyncio.create_task(app._watch_resize())
+        try:
+            terminal.height = 8
+            await asyncio.sleep(0.32)
+
+            self.assertGreater(len(terminal.replacements), initial_replacements)
+            self.assertEqual(app._last_height, 8)
+            self.assertFalse(app._cat_animatable)
+        finally:
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+
+    async def test_cat_waits_for_resize_redraw_before_using_fixed_rows(self) -> None:
+        app = self._app()
+        terminal = app.terminal
+        app._hub_visible = True
+
+        await app._show_hub(replace=True)
+        terminal.region_updates.clear()
+
+        # Simulate a terminal resize that the resize watcher has not redrawn yet.
+        terminal.height -= 1
+
+        task = asyncio.create_task(app._animate_cat())
+        try:
+            await asyncio.sleep(CAT_INTERVAL_SECONDS + 0.08)
+            self.assertFalse(terminal.region_updates)
+        finally:
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+
+    async def test_hub_clock_refreshes_metadata_without_full_redraw(self) -> None:
+        app = self._app()
+        terminal = app.terminal
+        app._hub_visible = True
+
+        current = [datetime(2026, 8, 21, 14, 32)]
+        app.now = lambda: current[0]
+
+        await app._show_hub(replace=True)
+        initial_replacements = len(terminal.replacements)
+        terminal.region_updates.clear()
+
+        current[0] = datetime(2026, 8, 21, 14, 33)
+        await app._refresh_hub_clock_if_needed()
+
+        self.assertEqual(len(terminal.replacements), initial_replacements)
+        self.assertEqual(len(terminal.region_updates), 1)
+
+        row, column, lines = terminal.region_updates[0]
+        self.assertEqual((row, column), (4, 1))
+        self.assertIn("1 message / 14:33", lines[0])
 
     async def test_cat_animation_updates_only_fixed_header_region(self) -> None:
         app = self._app()

@@ -97,6 +97,7 @@ class InteractiveClientApp:
         self.client: HeadlessClient | None = None
         self._board_task: asyncio.Task[None] | None = None
         self._cat_task: asyncio.Task[None] | None = None
+        self._clock_task: asyncio.Task[None] | None = None
         self._resize_task: asyncio.Task[None] | None = None
         self._hub_visible = False
         self._hub_dirty = False
@@ -109,6 +110,8 @@ class InteractiveClientApp:
         self._cat_state = 0
         self._cat_animatable = False
         self._last_width = terminal.width
+        self._last_height = terminal.height
+        self._hub_clock_minute = self._minute_key()
 
     async def run(self) -> int:
         try:
@@ -137,21 +140,22 @@ class InteractiveClientApp:
                         if not await self._offline_loop():
                             raise InteractiveExit()
                         continue
-
-                    authenticated = await self._authenticate(host, port, ca_file)
                 finally:
                     launch_dots_task.cancel()
                     await asyncio.gather(launch_dots_task, return_exceptions=True)
 
+                if self.terminal.options.plain:
+                    await self.terminal.write_lines(
+                        ["", ui_text.CONNECTED, "", "    access phrase"]
+                    )
+                else:
+                    await self._show_launch_connected()
+
+                authenticated = await self._authenticate(host, port, ca_file)
                 if authenticated:
-                    if self.terminal.options.plain:
-                        await self.terminal.write_lines(["", ui_text.CONNECTED])
-                    else:
-                        await self._show_launch_connected()
                     break
                 if not await self._offline_loop():
                     raise InteractiveExit()
-                await self._show_launch_connecting()
 
             if not await self._select_display():
                 raise InteractiveExit()
@@ -160,13 +164,14 @@ class InteractiveClientApp:
             await self._show_hub(replace=True)
             self._board_task = asyncio.create_task(self._watch_board(), name="okno-terminal-board")
             self._cat_task = asyncio.create_task(self._animate_cat(), name="okno-terminal-cat")
+            self._clock_task = asyncio.create_task(self._watch_hub_clock(), name="okno-hub-clock")
             await self._hub_loop()
             return 0
         except (TerminalClosed, KeyboardInterrupt, InteractiveExit):
             return 0
         finally:
             self._exiting = True
-            for task_name in ("_cat_task", "_resize_task", "_board_task"):
+            for task_name in ("_cat_task", "_clock_task", "_resize_task", "_board_task"):
                 task = getattr(self, task_name)
                 if task is not None:
                     task.cancel()
@@ -223,8 +228,6 @@ class InteractiveClientApp:
             styled_line(("─" * ui_text.OKNO_LOGO_WIDTH, TextStyle.HEADING)),
             "",
             styled_line("    status   ", (ui_text.CONNECTING + ".", TextStyle.DIM)),
-            "",
-            "    access phrase",
         ]
         await self._display_view("launch", lambda: lines, replace=True)
 
@@ -234,6 +237,8 @@ class InteractiveClientApp:
             styled_line(("─" * ui_text.OKNO_LOGO_WIDTH, TextStyle.HEADING)),
             "",
             styled_line("    status   ", (ui_text.CONNECTED, TextStyle.SUCCESS)),
+            "",
+            "    access phrase",
         ]
         await self._display_view("launch_connected", lambda: lines, replace=True)
 
@@ -264,19 +269,19 @@ class InteractiveClientApp:
 
     async def _select_display(self) -> bool:
         assert self.client is not None
-        await self.terminal.write_lines(["", "    enter 3 character id"])
+        await self.terminal.write_lines(["", f"    {ui_text.ENTER_ID_LABEL}"])
         while True:
             raw = (await self.terminal.read_line("    > ")).strip()
             if len(raw) != 3:
                 await self.terminal.write_lines(
-                    [styled_line((ui_text.ID_LENGTH_INVALID, TextStyle.ERROR)), "", "    enter 3 character id"]
+                    [styled_line((ui_text.ID_LENGTH_INVALID, TextStyle.ERROR)), "", f"    {ui_text.ENTER_ID_LABEL}"]
                 )
                 continue
             try:
                 selected = normalise_display_id(raw)
             except (AccessError, ValueError, TypeError):
                 await self.terminal.write_lines(
-                    [styled_line((ui_text.ID_INVALID, TextStyle.ERROR)), "", "    enter 3 character id"]
+                    [styled_line((ui_text.ID_INVALID, TextStyle.ERROR)), "", f"    {ui_text.ENTER_ID_LABEL}"]
                 )
                 continue
             try:
@@ -285,7 +290,7 @@ class InteractiveClientApp:
             except ClientError as exc:
                 if exc.code is ClientErrorCode.DISPLAY_UNAVAILABLE:
                     await self.terminal.write_lines(
-                        [styled_line((ui_text.ID_ACTIVE, TextStyle.ERROR)), "", "    enter 3 character id"]
+                        [styled_line((ui_text.ID_ACTIVE, TextStyle.ERROR)), "", f"    {ui_text.ENTER_ID_LABEL}"]
                     )
                     continue
                 await self.terminal.write_lines([styled_line((self._connection_error_text(exc), TextStyle.ERROR))])
@@ -330,7 +335,7 @@ class InteractiveClientApp:
             await self._post()
         elif line == "/comm":
             await self._comm()
-        elif line == "/status":
+        elif line == "/info":
             next_line = await self._show_status_and_read(in_comm=False)
             await self._show_hub(replace=not self.terminal.options.plain)
             await self._handle_hub_line(next_line.strip())
@@ -612,7 +617,7 @@ class InteractiveClientApp:
     ) -> None:
         assert self.client is not None
         line = raw.strip() if raw.startswith("/") else raw
-        if line == "/status":
+        if line == "/info":
             next_line = await self._show_status_and_read(in_comm=True, peer_id=peer_id)
             await self._show_comm(peer_id, replace=not self.terminal.options.plain)
             await self._handle_comm_line(next_line, local_id, peer_id, closed, close_notice)
@@ -778,11 +783,8 @@ class InteractiveClientApp:
         builder = lambda: self._hub_lines(cat_state=self._cat_state, compose=compose)
         await self._display_view("hub", builder, replace=replace)
         lines = builder()
-        self._cat_animatable = (
-            not self.terminal.options.plain
-            and self.terminal.width >= CAT_MIN_WIDTH
-            and len(lines) + 1 <= self.terminal.height
-        )
+        self._hub_clock_minute = self._minute_key()
+        self._cat_animatable = self._can_animate_cat(lines)
 
     def _hub_lines(self, *, cat_state: int = 0, compose: bool = False) -> list[RenderableLine]:
         assert self.client is not None
@@ -790,11 +792,8 @@ class InteractiveClientApp:
         header = self._title_rule(ui_text.THE_HUB, width)
         separator = "─" * width
         records = self.client.board_records
-        count = len(records)
-        message_word = "message" if count == 1 else "messages"
-        time_text = self.now().strftime("%H:%M")
         left_top = f"    {self.client.display_id or '-'}   connected"
-        left_bottom = f"    {count} {message_word} / {time_text}"
+        left_bottom = self._hub_metadata_text()
         show_cat = width >= CAT_MIN_WIDTH
         cat_bottom = CAT_LEFT if cat_state == 0 else CAT_RIGHT
 
@@ -917,7 +916,7 @@ class InteractiveClientApp:
         lines: list[RenderableLine] = [
             styled_line((self._title_rule(ui_text.COMM, width), TextStyle.HEADING)),
             "",
-            ui_text.COMM_PHRASE_LABEL,
+            ui_text.COMM_PHRASE_ENTRY_LABEL,
             "",
             styled_line((ui_text.COMM_SETUP_COMMANDS, TextStyle.DIM)),
         ]
@@ -976,7 +975,7 @@ class InteractiveClientApp:
         separator = "─" * width
         remaining = self.client.post_remaining_seconds
         lines: list[RenderableLine] = [
-            styled_line((self._title_rule(ui_text.STATUS, width), TextStyle.HEADING)),
+            styled_line((self._title_rule(ui_text.INFO, width), TextStyle.HEADING)),
             "",
             self._status_row("server", "connected", TextStyle.SUCCESS),
             self._status_row("id", self.client.display_id or "-", None),
@@ -1082,14 +1081,74 @@ class InteractiveClientApp:
             while True:
                 await asyncio.sleep(0.25)
                 width = self.terminal.width
-                if width == self._last_width:
+                height = self.terminal.height
+                if (width, height) == (self._last_width, self._last_height):
                     continue
+
                 self._last_width = width
+                self._last_height = height
+
                 if self.terminal.options.plain or self._current_view_builder is None:
                     continue
-                await self.terminal.replace_view(self._render_current(self._current_view_builder))
+
+                lines = self._render_current(self._current_view_builder)
+                await self.terminal.replace_view(lines)
+
+                if self._current_view_kind == "hub" and self._hub_visible:
+                    self._cat_animatable = self._can_animate_cat(lines)
         except asyncio.CancelledError:
             raise
+
+    async def _watch_hub_clock(self) -> None:
+        try:
+            while True:
+                await asyncio.sleep(1.0)
+                await self._refresh_hub_clock_if_needed()
+        except asyncio.CancelledError:
+            raise
+
+    async def _refresh_hub_clock_if_needed(self) -> None:
+        minute = self._minute_key()
+        if minute == self._hub_clock_minute:
+            return
+
+        self._hub_clock_minute = minute
+
+        if (
+            self._current_view_kind != "hub"
+            or not self._hub_visible
+            or self.terminal.options.plain
+            or self.terminal.width < MIN_TERMINAL_WIDTH
+            or self.terminal.width != self._last_width
+            or self.terminal.height != self._last_height
+        ):
+            return
+
+        width = self._panel_width()
+        metadata_width = width - CAT_WIDTH if width >= CAT_MIN_WIDTH else width
+        metadata = self._hub_metadata_text()[:metadata_width].ljust(metadata_width)
+
+        await self.terminal.update_region(
+            row=4,
+            column=1,
+            lines=[styled_line((metadata, TextStyle.DIM))],
+        )
+
+    def _hub_metadata_text(self) -> str:
+        assert self.client is not None
+        count = len(self.client.board_records)
+        message_word = "message" if count == 1 else "messages"
+        return f"    {count} {message_word} / {self.now().strftime('%H:%M')}"
+
+    def _minute_key(self) -> str:
+        return self.now().strftime("%Y-%m-%d %H:%M")
+
+    def _can_animate_cat(self, lines: list[RenderableLine]) -> bool:
+        return (
+            not self.terminal.options.plain
+            and self.terminal.width >= CAT_MIN_WIDTH
+            and len(lines) + 1 <= self.terminal.height
+        )
 
     async def _animate_cat(self) -> None:
         try:
@@ -1101,6 +1160,8 @@ class InteractiveClientApp:
                     or not self._cat_animatable
                     or self.terminal.options.plain
                     or self.terminal.width < CAT_MIN_WIDTH
+                    or self.terminal.width != self._last_width
+                    or self.terminal.height != self._last_height
                 ):
                     continue
                 self._cat_state = 1 - self._cat_state

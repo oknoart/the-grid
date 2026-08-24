@@ -261,6 +261,51 @@ class PosixTerminalTests(unittest.IsolatedAsyncioTestCase):
             os.close(master_fd)
             os.close(slave_fd)
 
+    async def test_secret_input_shows_fixed_hidden_marker_without_revealing_secret(self) -> None:
+        master_fd, slave_fd = os.openpty()
+        input_stream = os.fdopen(os.dup(slave_fd), "r", encoding="utf-8", buffering=1)
+        output_stream = os.fdopen(os.dup(slave_fd), "w", encoding="utf-8", buffering=1)
+        terminal = PosixTerminal(
+            input_stream=input_stream,
+            output_stream=output_stream,
+            options=RenderOptions(color=False, plain=False),
+        )
+        try:
+            terminal.enter()
+            task = asyncio.create_task(
+                terminal.read_line("phrase: ", secret=True)
+            )
+            await asyncio.sleep(0.02)
+            os.write(master_fd, b"velvet orbit cabin cedar")
+            await asyncio.sleep(0.02)
+            os.write(master_fd, b"\n")
+
+            self.assertEqual(
+                await asyncio.wait_for(task, 1),
+                "velvet orbit cabin cedar",
+            )
+
+            os.set_blocking(master_fd, False)
+            captured = bytearray()
+            for _ in range(10):
+                try:
+                    captured.extend(os.read(master_fd, 4096))
+                except BlockingIOError:
+                    break
+
+            rendered = captured.decode("utf-8", errors="replace")
+            self.assertIn("phrase: [hidden]", rendered)
+            self.assertNotIn("velvet", rendered)
+            self.assertNotIn("orbit", rendered)
+            self.assertNotIn("cabin", rendered)
+            self.assertNotIn("cedar", rendered)
+        finally:
+            terminal.restore()
+            input_stream.close()
+            output_stream.close()
+            os.close(master_fd)
+            os.close(slave_fd)
+
     async def test_plain_secret_read_restores_echo_when_cancelled(self) -> None:
         master_fd, slave_fd = os.openpty()
         original = termios.tcgetattr(slave_fd)

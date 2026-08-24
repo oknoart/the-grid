@@ -11,7 +11,7 @@ class UiTextTests(unittest.TestCase):
         self.assertEqual(ui_text.END_COMM_LABEL, "end comm? [y/n]")
         self.assertEqual(ui_text.END_OF_LINE, "end of line")
         self.assertEqual(ui_text.COMM_UNAVAILABLE, "comm unavailable")
-        self.assertEqual(ui_text.ENTER_ID_LABEL, "enter 3 character id")
+        self.assertEqual(ui_text.ENTER_ID_LABEL, "choose a 3 character id")
 
     def test_okno_wordmark_is_exact_and_underlined_to_its_width(self) -> None:
         self.assertEqual(ui_text.OKNO_LOGO_WIDTH, 36)
@@ -21,8 +21,8 @@ class UiTextTests(unittest.TestCase):
 
     def test_visual_uppercase_is_limited_to_approved_headings(self) -> None:
         self.assertEqual(
-            {ui_text.THE_HUB, ui_text.COMM, ui_text.STATUS, ui_text.HELP},
-            {"THE HUB", "COMM", "STATUS", "HELP"},
+            {ui_text.THE_HUB, ui_text.COMM, ui_text.INFO, ui_text.HELP},
+            {"THE HUB", "COMM", "INFO", "HELP"},
         )
         ordinary = [
             ui_text.CONNECTING,

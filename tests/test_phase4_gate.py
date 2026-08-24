@@ -92,7 +92,7 @@ class PhaseFourCompletionGateTests(unittest.IsolatedAsyncioTestCase):
                     left_terminal.feed("still connected")
                     await right_terminal.wait_for_text("ABC < still connected")
 
-                    left_terminal.feed("/status")
+                    left_terminal.feed("/info")
                     await left_terminal.wait_for_text("verification")
 
                     left_replacements = len(left_terminal.replacements)

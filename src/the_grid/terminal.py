@@ -499,8 +499,7 @@ class PosixTerminal:
                     + self._buffer[self._cursor_index :]
                 )
                 self._cursor_index += len(char)
-                if not self._secret:
-                    self._redraw_current_input()
+                self._redraw_current_input()
 
         def on_readable() -> None:
             try:
@@ -578,12 +577,17 @@ class PosixTerminal:
         self._redraw_current_input()
 
     def _redraw_current_input(self) -> None:
-        if self._secret or self.options.plain:
+        if self.options.plain:
             return
-        self.output.write("\r" + ANSI_CLEAR_LINE + self._prompt + self._buffer)
-        trailing = len(self._buffer) - self._cursor_index
-        if trailing > 0:
-            self.output.write(f"\x1b[{trailing}D")
+        self.output.write("\r" + ANSI_CLEAR_LINE + self._prompt)
+        if self._secret:
+            if self._buffer:
+                self.output.write("[hidden]")
+        else:
+            self.output.write(self._buffer)
+            trailing = len(self._buffer) - self._cursor_index
+            if trailing > 0:
+                self.output.write(f"\x1b[{trailing}D")
         self.output.flush()
 
     def _erase_input_line_if_needed(self) -> None:
@@ -593,7 +597,10 @@ class PosixTerminal:
     def _redraw_input_if_needed(self) -> None:
         if self._reading and not self.options.plain:
             self.output.write(self._prompt)
-            if not self._secret:
+            if self._secret:
+                if self._buffer:
+                    self.output.write("[hidden]")
+            else:
                 self.output.write(self._buffer)
                 trailing = len(self._buffer) - self._cursor_index
                 if trailing > 0:
