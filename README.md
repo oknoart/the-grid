@@ -10,6 +10,8 @@ a comm is private, two-person and end-to-end encrypted.
 
 ## install
 
+### macOS
+
 macOS 12+ — apple silicon or intel.
 
 ```sh
@@ -21,6 +23,24 @@ then:
 ```sh
 okno
 ```
+
+### Android / Termux
+
+in Termux:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/oknoart/the-grid/main/install-termux.sh | sh
+```
+
+then:
+
+```sh
+okno
+```
+
+Android support is for the okno client. Android server hosting is not supported.
+
+see [`docs/termux.md`](docs/termux.md) for Android notes.
 
 you’ll need the four-word access phrase from whoever runs the grid.
 
@@ -66,6 +86,6 @@ protocol, crypto and deployment docs are in [`docs/`](docs/).
 
 ## right now
 
-macOS for now.
+macOS and Android through Termux.
 
 do it yourself.
