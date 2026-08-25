@@ -65,11 +65,23 @@ jobs:
       OKNO_GRID_CA_B64: ${{ secrets.OKNO_GRID_CA_B64 }}
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.14'
       - uses: actions/download-artifact@v4
         with:
           pattern: okno-macos-*
           merge-multiple: true
           path: release
+      - name: Build portable Python wheel
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION="${GITHUB_REF_NAME#v}"
+          OKNO_EXPECTED_VERSION="$VERSION" ./scripts/build-python-wheel.sh
+          cp "build/release/okno-${VERSION}-py3-none-any.whl" release/
+          printf '%s\n' "$VERSION" > release/okno-version.txt
+
       - name: Create deployment assets
         shell: bash
         run: |
@@ -79,7 +91,7 @@ jobs:
           printf '%s\n' "$OKNO_GRID_HOST" > release/okno-grid-host.txt
           printf '%s\n' "${OKNO_GRID_PORT:-7331}" > release/okno-grid-port.txt
           printf '%s' "$OKNO_GRID_CA_B64" | base64 --decode > release/okno-grid-ca.pem
-          (cd release && sha256sum okno-macos-*.tar.gz okno-grid-host.txt okno-grid-port.txt okno-grid-ca.pem > SHA256SUMS.txt)
+          (cd release && sha256sum okno-macos-*.tar.gz okno-*-py3-none-any.whl okno-version.txt okno-grid-host.txt okno-grid-port.txt okno-grid-ca.pem > SHA256SUMS.txt)
       - name: Create GitHub release
         shell: bash
         run: |
@@ -89,6 +101,8 @@ jobs:
             --generate-notes \
             release/okno-macos-arm64.tar.gz \
             release/okno-macos-x86_64.tar.gz \
+            release/okno-*-py3-none-any.whl \
+            release/okno-version.txt \
             release/okno-grid-host.txt \
             release/okno-grid-port.txt \
             release/okno-grid-ca.pem \
