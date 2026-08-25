@@ -196,6 +196,8 @@ class PosixTerminal:
         self._reading = False
         self._decoder = codecs.getincrementaldecoder("utf-8")("replace")
         self._pending_chars: list[str] = []
+        self._input_render_rows = 1
+        self._input_cursor_row = 0
 
     @property
     def width(self) -> int:
@@ -255,6 +257,8 @@ class PosixTerminal:
         self._buffer = ""
         self._cursor_index = 0
         self._secret = False
+        self._input_render_rows = 1
+        self._input_cursor_row = 0
 
     async def write(
         self,
@@ -363,7 +367,9 @@ class PosixTerminal:
         self._cursor_index = 0
         self._secret = secret
         self._reading = True
-        self.output.write(prompt)
+        self._input_render_rows = 1
+        self._input_cursor_row = 0
+        self._render_current_input()
         self.output.flush()
         try:
             if self._isatty:
@@ -377,6 +383,8 @@ class PosixTerminal:
             self._buffer = ""
             self._cursor_index = 0
             self._secret = False
+            self._input_render_rows = 1
+            self._input_cursor_row = 0
 
     def _blocking_readline(self, secret: bool) -> str:
         line = self.input.readline()
@@ -467,7 +475,7 @@ class PosixTerminal:
                     if self._secret:
                         self.output.write("\n")
                     else:
-                        self.output.write("\r" + ANSI_CLEAR_LINE)
+                        self._erase_input_line_if_needed()
                     self.output.flush()
                     future.set_result(self._buffer)
                     return
@@ -576,35 +584,70 @@ class PosixTerminal:
             )
         self._redraw_current_input()
 
+    def _render_current_input(self) -> None:
+        if self.options.plain:
+            return
+
+        visible = "[hidden]" if self._secret and self._buffer else (
+            "" if self._secret else self._buffer
+        )
+        self.output.write(self._prompt)
+        self.output.write(visible)
+
+        width = max(1, self.width)
+        total = len(self._prompt) + len(visible)
+        self._input_render_rows = max(1, (total + width - 1) // width)
+
+        if self._secret:
+            self._input_cursor_row = (total - 1) // width if total else 0
+            return
+
+        cursor_offset = len(self._prompt) + self._cursor_index
+        if cursor_offset == total:
+            self._input_cursor_row = (total - 1) // width if total else 0
+            return
+
+        end_row = (total - 1) // width if total else 0
+        target_row = cursor_offset // width
+        target_column = cursor_offset % width
+
+        self.output.write("\r")
+        if end_row > target_row:
+            self.output.write(f"\x1b[{end_row - target_row}A")
+        if target_column:
+            self.output.write(f"\x1b[{target_column}C")
+
+        self._input_cursor_row = target_row
+
     def _redraw_current_input(self) -> None:
         if self.options.plain:
             return
-        self.output.write("\r" + ANSI_CLEAR_LINE + self._prompt)
-        if self._secret:
-            if self._buffer:
-                self.output.write("[hidden]")
-        else:
-            self.output.write(self._buffer)
-            trailing = len(self._buffer) - self._cursor_index
-            if trailing > 0:
-                self.output.write(f"\x1b[{trailing}D")
+        self._erase_input_line_if_needed()
+        self._render_current_input()
         self.output.flush()
 
     def _erase_input_line_if_needed(self) -> None:
-        if self._reading and not self.options.plain:
-            self.output.write("\r" + ANSI_CLEAR_LINE)
+        if not self._reading or self.options.plain:
+            return
+
+        rows = max(1, self._input_render_rows)
+        cursor_row = min(max(0, self._input_cursor_row), rows - 1)
+
+        self.output.write("\r")
+        if cursor_row:
+            self.output.write(f"\x1b[{cursor_row}A")
+
+        for row in range(rows):
+            self.output.write(ANSI_CLEAR_LINE)
+            if row < rows - 1:
+                self.output.write("\x1b[1B\r")
+
+        if rows > 1:
+            self.output.write(f"\x1b[{rows - 1}A\r")
 
     def _redraw_input_if_needed(self) -> None:
         if self._reading and not self.options.plain:
-            self.output.write(self._prompt)
-            if self._secret:
-                if self._buffer:
-                    self.output.write("[hidden]")
-            else:
-                self.output.write(self._buffer)
-                trailing = len(self._buffer) - self._cursor_index
-                if trailing > 0:
-                    self.output.write(f"\x1b[{trailing}D")
+            self._render_current_input()
 
     def _write_renderable(self, line: RenderableLine) -> None:
         if isinstance(line, str):

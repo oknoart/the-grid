@@ -4,6 +4,7 @@ import asyncio
 import os
 import termios
 import unittest
+from unittest.mock import patch
 
 from the_grid.terminal import (
     PosixTerminal,
@@ -387,6 +388,58 @@ class PosixTerminalTests(unittest.IsolatedAsyncioTestCase):
             output_stream.close()
             os.close(master_fd)
             os.close(slave_fd)
+
+
+    async def test_wrapped_input_redraw_returns_to_first_visual_row(self) -> None:
+        master_fd, slave_fd = os.openpty()
+        input_stream = os.fdopen(os.dup(slave_fd), "r", encoding="utf-8", buffering=1)
+        output_stream = os.fdopen(os.dup(slave_fd), "w", encoding="utf-8", buffering=1)
+        terminal = PosixTerminal(
+            input_stream=input_stream,
+            output_stream=output_stream,
+            options=RenderOptions(color=False, plain=False),
+        )
+        try:
+            with patch(
+                "the_grid.terminal.shutil.get_terminal_size",
+                return_value=os.terminal_size((20, 24)),
+            ):
+                terminal.enter()
+                task = asyncio.create_task(terminal.read_line("message > "))
+                await asyncio.sleep(0.02)
+
+                # Prompt + eleven characters exceeds the 20-column terminal.
+                os.write(master_fd, b"abcdefghijk")
+                await asyncio.sleep(0.02)
+
+                # Force another redraw after the input has wrapped.
+                os.write(master_fd, b"\x7f\n")
+                self.assertEqual(
+                    await asyncio.wait_for(task, 1),
+                    "abcdefghij",
+                )
+
+            os.set_blocking(master_fd, False)
+            captured = bytearray()
+            for _ in range(10):
+                try:
+                    captured.extend(os.read(master_fd, 4096))
+                except BlockingIOError:
+                    break
+
+            rendered = captured.decode("utf-8", errors="replace")
+
+            # A wrapped redraw must move back above the current visual row
+            # before repainting; clearing only the current row leaves copies
+            # of the prompt behind on narrow terminals.
+            self.assertIn("\x1b[1A", rendered)
+        finally:
+            terminal.restore()
+            input_stream.close()
+            output_stream.close()
+            os.close(master_fd)
+            os.close(slave_fd)
+
 
     async def test_ctrl_d_with_text_does_not_exit(self) -> None:
         master_fd, slave_fd = os.openpty()
