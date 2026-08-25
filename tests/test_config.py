@@ -37,6 +37,28 @@ class ConfigTests(unittest.TestCase):
         )
         self.assertEqual(path, Path("/home/example/.config/okno/config.json"))
 
+    def test_android_xdg_path(self) -> None:
+        path = default_config_path(
+            platform_name="android",
+            environ={"XDG_CONFIG_HOME": "/data/data/com.termux/files/home/.config"},
+            home=Path("/data/data/com.termux/files/home"),
+        )
+        self.assertEqual(
+            path,
+            Path("/data/data/com.termux/files/home/.config/okno/config.json"),
+        )
+
+    def test_android_fallback_path(self) -> None:
+        path = default_config_path(
+            platform_name="android",
+            environ={},
+            home=Path("/data/data/com.termux/files/home"),
+        )
+        self.assertEqual(
+            path,
+            Path("/data/data/com.termux/files/home/.config/okno/config.json"),
+        )
+
     def test_macos_path(self) -> None:
         path = default_config_path(
             platform_name="darwin",

@@ -46,7 +46,7 @@ def default_config_path(
             / CONFIG_FILENAME
         )
 
-    if platform_name.startswith("linux"):
+    if platform_name.startswith("linux") or platform_name == "android":
         xdg_home = environ.get("XDG_CONFIG_HOME", "").strip()
         base = Path(xdg_home).expanduser() if xdg_home else home / ".config"
         return base / terms.APP_SLUG / CONFIG_FILENAME
