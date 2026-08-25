@@ -32,6 +32,7 @@ from .hub import (
     encrypt_board_message,
 )
 from .models import CloseReason
+from .version import VERSION
 from .phrases import generate_phrase
 from .protocol import (
     ACCESS_CHALLENGE_BYTES,
@@ -150,7 +151,7 @@ class HeadlessClient:
         *,
         ssl_context: ssl.SSLContext | None = None,
         allow_plain: bool = False,
-        client_version: str = "0.4.0",
+        client_version: str = VERSION,
         request_timeout: float = DEFAULT_CLIENT_REQUEST_TIMEOUT,
     ) -> None:
         if not isinstance(host, str) or not host:

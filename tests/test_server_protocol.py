@@ -9,6 +9,7 @@ from pathlib import Path
 from unittest.mock import Mock, patch
 
 from phase3_support import FakeClock, access_setup, start_plain_server, start_tls_server
+from the_grid import __version__
 from the_grid.client import ClientError, ClientErrorCode, HeadlessClient, create_client_ssl_context
 from the_grid.protocol import encode_outer_frame, make_frame, read_outer_frame
 from the_grid.relay import (
@@ -21,6 +22,10 @@ from the_grid.relay import (
 
 
 class ServerProtocolTests(unittest.IsolatedAsyncioTestCase):
+
+    def test_headless_client_default_version_tracks_app_version(self) -> None:
+        client = HeadlessClient("127.0.0.1", 7331, allow_plain=True)
+        self.assertEqual(client.client_version, __version__)
     async def test_plain_transport_is_loopback_only(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             setup = access_setup()
