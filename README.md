@@ -50,6 +50,8 @@ hub messages are encrypted before they’re stored and disappear after a while.
 
 comms are end-to-end encrypted and aren’t intentionally persisted by the server.
 
+when a comm ends or okno exits, okno clears the terminal display and scrollback — including anything that was there before okno started.
+
 your id is three characters and lasts for the session.
 
 okno isn’t tor. the grid operator can still see normal network metadata.
