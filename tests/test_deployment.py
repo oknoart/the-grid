@@ -139,6 +139,111 @@ class DeploymentFilesTests(unittest.TestCase):
             ca = home / "Library" / "Application Support" / "okno" / "grid-ca.pem"
             self.assertTrue(ca.is_file())
 
+    def test_one_line_installer_prepends_default_bin_when_it_is_late_in_path(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            fixtures = root / "fixtures"
+            fixtures.mkdir()
+            payload = root / "payload"
+            payload.mkdir()
+            okno = payload / "okno"
+            okno.write_text(
+                "#!/bin/sh\n[ \"${1:-}\" = \"--version\" ] && { echo 'okno 0.5.0'; exit 0; }\nexit 0\n",
+                encoding="utf-8",
+            )
+            okno.chmod(0o755)
+            archive = fixtures / "okno-macos-arm64.tar.gz"
+            with tarfile.open(archive, "w:gz") as tar:
+                tar.add(okno, arcname="okno", recursive=False)
+            (fixtures / "okno-grid-host.txt").write_text("grid.example.net\n", encoding="utf-8")
+            (fixtures / "okno-grid-port.txt").write_text("7331\n", encoding="ascii")
+            (fixtures / "okno-grid-ca.pem").write_text(
+                "-----BEGIN CERTIFICATE-----\npublic-test-ca\n-----END CERTIFICATE-----\n",
+                encoding="ascii",
+            )
+            assets = (
+                "okno-macos-arm64.tar.gz",
+                "okno-grid-host.txt",
+                "okno-grid-port.txt",
+                "okno-grid-ca.pem",
+            )
+            checksums = "".join(
+                f"{hashlib.sha256((fixtures / name).read_bytes()).hexdigest()}  {name}\n"
+                for name in assets
+            )
+            (fixtures / "SHA256SUMS.txt").write_text(checksums, encoding="ascii")
+
+            fakebin = root / "fakebin"
+            fakebin.mkdir()
+            uname = fakebin / "uname"
+            uname.write_text(
+                "#!/bin/sh\ncase \"${1:-}\" in -s) echo Darwin ;; -m) echo arm64 ;; *) echo Darwin ;; esac\n",
+                encoding="utf-8",
+            )
+            uname.chmod(0o755)
+            sysctl = fakebin / "sysctl"
+            sysctl.write_text("#!/bin/sh\necho 0\n", encoding="utf-8")
+            sysctl.chmod(0o755)
+            sw_vers = fakebin / "sw_vers"
+            sw_vers.write_text(
+                "#!/bin/sh\n[ \"${1:-}\" = \"-productVersion\" ] && echo 12.7.6\n",
+                encoding="utf-8",
+            )
+            sw_vers.chmod(0o755)
+            curl = fakebin / "curl"
+            curl.write_text(
+                "#!/bin/sh\n"
+                "url=''\nout=''\n"
+                "while [ $# -gt 0 ]; do\n"
+                "  case \"$1\" in\n"
+                "    http*) url=$1 ;;\n"
+                "    -o) shift; out=$1 ;;\n"
+                "  esac\n"
+                "  shift\n"
+                "done\n"
+                "[ -n \"$url\" ] && [ -n \"$out\" ] || exit 2\n"
+                "cp \"$OKNO_FIXTURES/${url##*/}\" \"$out\"\n",
+                encoding="utf-8",
+            )
+            curl.chmod(0o755)
+
+            home = root / "home"
+            home.mkdir()
+            install_dir = home / ".local" / "bin"
+            profile = home / ".zprofile"
+            profile.write_text(
+                'export PATH="$PATH:$HOME/.local/bin"\n',
+                encoding="utf-8",
+            )
+            env = os.environ.copy()
+            env.update(
+                {
+                    "HOME": str(home),
+                    "OKNO_FIXTURES": str(fixtures),
+                    "SHELL": "/bin/zsh",
+                    "PATH": f"{fakebin}:/usr/local/bin:/usr/bin:/bin:{install_dir}",
+                }
+            )
+            completed = subprocess.run(
+                ["sh", str(ROOT / "install.sh")],
+                env=env,
+                text=True,
+                capture_output=True,
+                check=True,
+            )
+            self.assertIn("installed okno 0.5.0", completed.stdout)
+            self.assertTrue((install_dir / "okno").is_file())
+            profile_text = profile.read_text(encoding="utf-8")
+            self.assertIn('export PATH="$HOME/.local/bin:$PATH"', profile_text)
+            self.assertIn("open a new terminal", completed.stdout)
+            config = home / "Library" / "Application Support" / "okno" / "config.json"
+            self.assertTrue(config.is_file())
+            text = config.read_text(encoding="utf-8")
+            self.assertIn('"host": "grid.example.net"', text)
+            self.assertIn('"port": 7331', text)
+            ca = home / "Library" / "Application Support" / "okno" / "grid-ca.pem"
+            self.assertTrue(ca.is_file())
+
     def test_release_builder_freezes_one_terminal_executable(self) -> None:
         script = ROOT / "scripts" / "build-macos-release.sh"
         text = script.read_text(encoding="utf-8")

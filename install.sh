@@ -171,32 +171,26 @@ mv -f "$CONFIG_TMP" "$CONFIG_DEST" ||
 
 PATH_ADDED=0
 
-# Normal installs are entirely inside the user's home folder. Add the
-# executable directory to future shells if it is not already available.
+# Normal installs are entirely inside the user's home folder. Ensure
+# the executable directory takes precedence in future shells.
 if [ -z "${OKNO_INSTALL_DIR+x}" ]; then
-    case ":${PATH:-}:" in
-        *":$DEFAULT_INSTALL_DIR:"*)
-            ;;
-        *)
-            case "${SHELL:-}" in
-                */zsh) PROFILE="$HOME/.zprofile" ;;
-                */bash) PROFILE="$HOME/.bash_profile" ;;
-                *) PROFILE="$HOME/.profile" ;;
-            esac
-
-            PATH_LINE='export PATH="$HOME/.local/bin:$PATH"'
-
-            if [ ! -f "$PROFILE" ]; then
-                : > "$PROFILE" 2>/dev/null || true
-            fi
-
-            if [ -w "$PROFILE" ] &&
-                ! grep -F "$PATH_LINE" "$PROFILE" >/dev/null 2>&1; then
-                printf '\n# okno\n%s\n' "$PATH_LINE" >> "$PROFILE"
-                PATH_ADDED=1
-            fi
-            ;;
+    case "${SHELL:-}" in
+        */zsh) PROFILE="$HOME/.zprofile" ;;
+        */bash) PROFILE="$HOME/.bash_profile" ;;
+        *) PROFILE="$HOME/.profile" ;;
     esac
+
+    PATH_LINE='export PATH="$HOME/.local/bin:$PATH"'
+
+    if [ ! -f "$PROFILE" ]; then
+        : > "$PROFILE" 2>/dev/null || true
+    fi
+
+    if [ -w "$PROFILE" ] &&
+        ! grep -F "$PATH_LINE" "$PROFILE" >/dev/null 2>&1; then
+        printf '\n# okno\n%s\n' "$PATH_LINE" >> "$PROFILE"
+        PATH_ADDED=1
+    fi
 fi
 
 printf '\ninstalled %s\n\n' "$VERSION_OUTPUT"
