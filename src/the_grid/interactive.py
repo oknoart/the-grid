@@ -57,6 +57,7 @@ class TerminalPort(Protocol):
         lines: tuple[RenderableLine, ...] | list[RenderableLine] | RenderableLine,
     ) -> None: ...
     async def clear(self) -> None: ...
+    async def purge(self) -> None: ...
     async def replace_view(self, lines: tuple[RenderableLine, ...] | list[RenderableLine]) -> None: ...
     async def update_region(
         self,
@@ -180,6 +181,7 @@ class InteractiveClientApp:
                     setattr(self, task_name, None)
             if self.client is not None:
                 await self.client.close()
+            await self.terminal.purge()
             await self.terminal.write(ui_text.END_OF_LINE)
 
     def _resolve_server(self) -> tuple[str, int, Path | None]:
@@ -781,6 +783,7 @@ class InteractiveClientApp:
             except ClientError:
                 pass
             self._hub_dirty = False
+        await self.terminal.purge()
         await self._show_hub(replace=not self.terminal.options.plain)
 
     async def _show_hub(self, *, replace: bool, compose: bool = False) -> None:

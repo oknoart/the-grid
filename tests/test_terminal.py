@@ -62,6 +62,67 @@ class TerminalTextTests(unittest.TestCase):
 
 @unittest.skipUnless(os.name == "posix", "POSIX terminal backend required")
 class PosixTerminalTests(unittest.IsolatedAsyncioTestCase):
+
+    async def test_purge_erases_visible_screen_and_scrollback(self) -> None:
+        master_fd, slave_fd = os.openpty()
+        input_stream = os.fdopen(os.dup(slave_fd), "r", encoding="utf-8", buffering=1)
+        output_stream = os.fdopen(os.dup(slave_fd), "w", encoding="utf-8", buffering=1)
+        terminal = PosixTerminal(
+            input_stream=input_stream,
+            output_stream=output_stream,
+            options=RenderOptions(color=False, plain=False),
+        )
+        try:
+            terminal.enter()
+            await terminal.purge()
+
+            os.set_blocking(master_fd, False)
+            captured = bytearray()
+            for _ in range(10):
+                try:
+                    captured.extend(os.read(master_fd, 4096))
+                except BlockingIOError:
+                    break
+
+            rendered = captured.decode("utf-8", errors="replace")
+            self.assertIn("\x1b[2J\x1b[3J\x1b[H", rendered)
+        finally:
+            terminal.restore()
+            input_stream.close()
+            output_stream.close()
+            os.close(master_fd)
+            os.close(slave_fd)
+
+    async def test_plain_purge_does_not_emit_ansi_controls(self) -> None:
+        master_fd, slave_fd = os.openpty()
+        input_stream = os.fdopen(os.dup(slave_fd), "r", encoding="utf-8", buffering=1)
+        output_stream = os.fdopen(os.dup(slave_fd), "w", encoding="utf-8", buffering=1)
+        terminal = PosixTerminal(
+            input_stream=input_stream,
+            output_stream=output_stream,
+            options=RenderOptions(color=False, plain=True),
+        )
+        try:
+            terminal.enter()
+            await terminal.purge()
+
+            os.set_blocking(master_fd, False)
+            captured = bytearray()
+            for _ in range(10):
+                try:
+                    captured.extend(os.read(master_fd, 4096))
+                except BlockingIOError:
+                    break
+
+            rendered = captured.decode("utf-8", errors="replace")
+            self.assertNotIn("\x1b[", rendered)
+        finally:
+            terminal.restore()
+            input_stream.close()
+            output_stream.close()
+            os.close(master_fd)
+            os.close(slave_fd)
+
     async def test_incoming_output_preserves_active_input_and_restores_terminal(self) -> None:
         master_fd, slave_fd = os.openpty()
         original = termios.tcgetattr(slave_fd)

@@ -186,6 +186,7 @@ class VisualPolishTests(unittest.IsolatedAsyncioTestCase):
 
         await app._comm()
 
+        self.assertEqual(terminal.purges, 1)
         self.assertTrue(app._hub_visible)
         self.assertTrue(
             any("enter a comm phrase" in line for view in terminal.replacements for line in view)

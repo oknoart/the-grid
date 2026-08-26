@@ -107,12 +107,17 @@ class PhaseFourCompletionGateTests(unittest.IsolatedAsyncioTestCase):
                         right_terminal.wait_for_replacements(right_replacements + 1),
                     )
 
+                    self.assertEqual(left_terminal.purges, 1)
+                    self.assertEqual(right_terminal.purges, 1)
+
                     left_terminal.feed("/exit")
                     right_terminal.feed("/exit")
                     self.assertEqual(await asyncio.wait_for(left_task, 5), 0)
                     self.assertEqual(await asyncio.wait_for(right_task, 5), 0)
-                    self.assertIn("end of line", left_terminal.lines)
-                    self.assertIn("end of line", right_terminal.lines)
+                    self.assertEqual(left_terminal.purges, 2)
+                    self.assertEqual(right_terminal.purges, 2)
+                    self.assertEqual(left_terminal.lines, ["end of line"])
+                    self.assertEqual(right_terminal.lines, ["end of line"])
                 finally:
                     for task in (left_task, right_task):
                         if not task.done():
@@ -203,6 +208,7 @@ class PhaseFourCompletionGateTests(unittest.IsolatedAsyncioTestCase):
                 self.assertIn("    no messages", terminal.lines)
                 self.assertTrue(any(line.startswith("/post") for line in terminal.lines))
                 self.assertIn("end of line", terminal.lines)
+                self.assertEqual(terminal.purges, 1)
             finally:
                 await server.close()
 

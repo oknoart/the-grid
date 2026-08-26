@@ -19,6 +19,7 @@ class FakeTerminal:
         self.replacements: list[list[str]] = []
         self.region_updates: list[tuple[int, int, list[str]]] = []
         self.clears = 0
+        self.purges = 0
         self.changed = asyncio.Event()
 
     def feed(self, value: str | BaseException) -> None:
@@ -52,6 +53,12 @@ class FakeTerminal:
 
     async def clear(self) -> None:
         self.clears += 1
+        self.changed.set()
+
+    async def purge(self) -> None:
+        self.purges += 1
+        if not self.options.plain:
+            self.lines.clear()
         self.changed.set()
 
     async def replace_view(self, lines) -> None:

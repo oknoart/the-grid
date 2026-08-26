@@ -20,6 +20,7 @@ MIN_TERMINAL_WIDTH: Final = 40
 TAB_SPACES: Final = 4
 ANSI_CLEAR_LINE: Final = "\x1b[2K"
 ANSI_CLEAR_SCREEN: Final = "\x1b[2J\x1b[H"
+ANSI_PURGE_SCREEN: Final = "\x1b[2J\x1b[3J\x1b[H"
 ANSI_RESET: Final = "\x1b[0m"
 ANSI_SAVE_CURSOR: Final = "\x1b7"
 ANSI_RESTORE_CURSOR: Final = "\x1b8"
@@ -320,6 +321,16 @@ class PosixTerminal:
                 self._erase_input_line_if_needed()
                 self.output.write(ANSI_CLEAR_SCREEN)
                 self._redraw_input_if_needed()
+            self.output.flush()
+
+    async def purge(self) -> None:
+        """Erase the visible ANSI display and its saved scrollback."""
+
+        if self.options.plain:
+            return
+        async with self._write_lock:
+            self._erase_input_line_if_needed()
+            self.output.write(ANSI_PURGE_SCREEN)
             self.output.flush()
 
     async def replace_view(self, lines: tuple[RenderableLine, ...] | list[RenderableLine]) -> None:
