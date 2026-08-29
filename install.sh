@@ -169,8 +169,6 @@ chmod 600 "$CONFIG_TMP"
 mv -f "$CONFIG_TMP" "$CONFIG_DEST" ||
     fail "could not install configuration"
 
-PATH_ADDED=0
-
 # Normal installs are entirely inside the user's home folder. Ensure
 # the executable directory takes precedence in future shells.
 if [ -z "${OKNO_INSTALL_DIR+x}" ]; then
@@ -189,14 +187,17 @@ if [ -z "${OKNO_INSTALL_DIR+x}" ]; then
     if [ -w "$PROFILE" ] &&
         ! grep -F "$PATH_LINE" "$PROFILE" >/dev/null 2>&1; then
         printf '\n# okno\n%s\n' "$PATH_LINE" >> "$PROFILE"
-        PATH_ADDED=1
     fi
 fi
 
 printf '\ninstalled %s\n\n' "$VERSION_OUTPUT"
 
-if [ "$PATH_ADDED" -eq 1 ]; then
+CURRENT_OKNO=$(command -v okno 2>/dev/null || true)
+
+if [ "$CURRENT_OKNO" = "$INSTALL_DIR/okno" ]; then
+    printf 'launch with:\n\n  okno\n\n'
+elif [ -z "${OKNO_INSTALL_DIR+x}" ]; then
     printf 'open a new terminal, then:\n\n  okno\n\n'
 else
-    printf 'launch with:\n\n  okno\n\n'
+    printf 'launch with:\n\n  %s/okno\n\n' "$INSTALL_DIR"
 fi

@@ -215,13 +215,24 @@ class DeploymentFilesTests(unittest.TestCase):
                 'export PATH="$PATH:$HOME/.local/bin"\n',
                 encoding="utf-8",
             )
+
+            # Simulate an older system-wide okno which would otherwise win.
+            legacybin = root / "legacybin"
+            legacybin.mkdir()
+            legacy_okno = legacybin / "okno"
+            legacy_okno.write_text(
+                "#!/bin/sh\necho 'okno legacy'\n",
+                encoding="utf-8",
+            )
+            legacy_okno.chmod(0o755)
+
             env = os.environ.copy()
             env.update(
                 {
                     "HOME": str(home),
                     "OKNO_FIXTURES": str(fixtures),
                     "SHELL": "/bin/zsh",
-                    "PATH": f"{fakebin}:/usr/local/bin:/usr/bin:/bin:{install_dir}",
+                    "PATH": f"{fakebin}:{legacybin}:/usr/bin:/bin:{install_dir}",
                 }
             )
             completed = subprocess.run(
@@ -243,6 +254,38 @@ class DeploymentFilesTests(unittest.TestCase):
             self.assertIn('"port": 7331', text)
             ca = home / "Library" / "Application Support" / "okno" / "grid-ca.pem"
             self.assertTrue(ca.is_file())
+
+            # The public website command prepares ~/.local/bin in the current
+            # shell before invoking the installer. Even if the installer also
+            # repairs the profile, no Terminal restart should then be needed.
+            profile.write_text(
+                'export PATH="$PATH:$HOME/.local/bin"\n',
+                encoding="utf-8",
+            )
+            env["PATH"] = f"{install_dir}:{fakebin}:{legacybin}:/usr/bin:/bin"
+
+            immediate = subprocess.run(
+                ["sh", str(ROOT / "install.sh")],
+                env=env,
+                text=True,
+                capture_output=True,
+                check=True,
+            )
+
+            self.assertIn("launch with:", immediate.stdout)
+            self.assertNotIn("open a new terminal", immediate.stdout)
+
+            current_shell = subprocess.run(
+                ["sh", "-c", "command -v okno; okno --version"],
+                env=env,
+                text=True,
+                capture_output=True,
+                check=True,
+            )
+            self.assertEqual(
+                current_shell.stdout.splitlines(),
+                [str(install_dir / "okno"), "okno 0.5.0"],
+            )
 
     def test_release_builder_freezes_one_terminal_executable(self) -> None:
         script = ROOT / "scripts" / "build-macos-release.sh"
