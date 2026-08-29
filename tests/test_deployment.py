@@ -447,6 +447,7 @@ class DeploymentFilesTests(unittest.TestCase):
             test_installer.chmod(0o755)
 
             env = os.environ.copy()
+            env.pop("XDG_CONFIG_HOME", None)
             env.update(
                 {
                     "HOME": str(home),
